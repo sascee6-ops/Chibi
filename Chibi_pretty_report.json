@@ -1,85 +1,87 @@
 {
   "blender_version": "4.2.0",
-  "input": "Chibi_full_fused.stl",
+  "input": "Chibi_full.stl",
   "parameters": {
-    "voxel_size": 0.2,
-    "smooth_factor": 0.4,
-    "smooth_iterations": 3,
-    "texture_size": 2048,
+    "voxel_size": 0.14,
+    "smooth_factor": 0.25,
+    "smooth_iterations": 2,
+    "texture_size": 4096,
     "bake_samples": 8,
     "render_samples": 32
   },
   "painted_vertex_counts": {
-    "cheek_left": 267,
-    "cheek_right": 270,
-    "eyelids": 33,
-    "nose": 42,
-    "lips": 18,
-    "hands": 1547,
+    "cheek_left": 526,
+    "cheek_right": 531,
+    "eyelids": 65,
+    "nose": 90,
+    "lips": 39,
+    "hands": 3924,
     "knees": 0,
-    "feet": 5292
+    "feet": 11242,
+    "freckles": 780,
+    "fingertips": 5400
   },
   "input_geometry": {
     "name": "Chibi_pretty",
-    "vertices": 65864,
-    "polygons": 131732,
-    "triangles": 131732,
+    "vertices": 48367,
+    "polygons": 96676,
+    "triangles": 96676,
     "bbox_min": [
-      -23.2277,
-      -8.9138,
-      -0.2286
+      -23.3186,
+      -8.9304,
+      -0.2339
     ],
     "bbox_max": [
-      23.2277,
-      10.1652,
-      76.544
+      23.3186,
+      10.1699,
+      76.5471
     ],
     "dimensions": [
-      46.4553,
-      19.079,
-      76.7726
+      46.6372,
+      19.1002,
+      76.7809
     ]
   },
   "sculpted_geometry": {
     "name": "Chibi_pretty",
-    "vertices": 149884,
-    "polygons": 149882,
-    "triangles": 299764,
+    "vertices": 308010,
+    "polygons": 308008,
+    "triangles": 616016,
     "bbox_min": [
-      -23.1945,
-      -8.9072,
-      -0.2202
+      -23.307,
+      -8.9255,
+      -0.2311
     ],
     "bbox_max": [
-      23.1946,
-      10.1612,
-      76.5426
+      23.307,
+      10.1681,
+      76.5467
     ],
     "dimensions": [
-      46.3891,
-      19.0684,
-      76.7628
+      46.614,
+      19.0936,
+      76.7779
     ]
   },
   "final_geometry": {
     "name": "Chibi_pretty",
-    "vertices": 149884,
-    "polygons": 149882,
-    "triangles": 299764,
+    "vertices": 308010,
+    "polygons": 308008,
+    "triangles": 616016,
     "bbox_min": [
-      -23.1945,
-      -8.9072,
-      -0.2202
+      -23.307,
+      -8.9255,
+      -0.2311
     ],
     "bbox_max": [
-      23.1946,
-      10.1612,
-      76.5426
+      23.307,
+      10.1681,
+      76.5467
     ],
     "dimensions": [
-      46.3891,
-      19.0684,
-      76.7628
+      46.614,
+      19.0936,
+      76.7779
     ]
   },
   "outputs": {
