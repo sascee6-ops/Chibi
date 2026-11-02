@@ -1,0 +1,246 @@
+name: Build unified Chibi model
+
+on:
+  # A push trigger lets this workflow run from a development branch before it
+  # has been merged into the default branch (where manual dispatch appears).
+  push:
+    branches:
+      - "arena/**"
+    paths:
+      - "body base.blend"
+      - "Chibi_head.stl"
+      - "scripts/**"
+      - ".github/workflows/build-chibi.yml"
+  workflow_dispatch:
+    inputs:
+      head_scale:
+        description: "Head scale (0.60 = balanced chibi proportions)"
+        required: true
+        default: "0.60"
+        type: string
+      voxel_size:
+        description: "Voxel size for the fused watertight STL"
+        required: true
+        default: "0.30"
+        type: string
+      commit_results:
+        description: "Commit generated model files back to the selected branch"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-chibi-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    env:
+      BLENDER_VERSION: "4.2.0"
+      HEAD_SCALE: ${{ inputs.head_scale || '0.60' }}
+      VOXEL_SIZE: ${{ inputs.voxel_size || '0.30' }}
+      TARGET_BRANCH: ${{ github.ref_name }}
+
+    steps:
+      - name: Check out selected branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python for validation and previews
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python packages
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install "numpy>=1.26,<3" "pillow>=10,<12"
+
+      - name: Install Blender system libraries
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            curl \
+            xz-utils \
+            xvfb \
+            libdbus-1-3 \
+            libegl1 \
+            libgl1 \
+            libice6 \
+            libsm6 \
+            libx11-6 \
+            libxcursor1 \
+            libxext6 \
+            libxfixes3 \
+            libxi6 \
+            libxinerama1 \
+            libxkbcommon0 \
+            libxkbcommon-x11-0 \
+            libxrandr2 \
+            libxrender1 \
+            libxxf86vm1 \
+            libwayland-client0 \
+            libwayland-cursor0
+
+      - name: Download official Blender
+        run: |
+          set -euo pipefail
+          BLENDER_MINOR="${BLENDER_VERSION%.*}"
+          BLENDER_DIR="$RUNNER_TEMP/blender-$BLENDER_VERSION"
+          ARCHIVE="$RUNNER_TEMP/blender-$BLENDER_VERSION-linux-x64.tar.xz"
+          URL="https://download.blender.org/release/Blender${BLENDER_MINOR}/blender-${BLENDER_VERSION}-linux-x64.tar.xz"
+
+          mkdir -p "$BLENDER_DIR"
+          curl --fail --location --retry 3 "$URL" --output "$ARCHIVE"
+          tar -xJf "$ARCHIVE" --strip-components=1 -C "$BLENDER_DIR"
+          echo "BLENDER=$BLENDER_DIR/blender" >> "$GITHUB_ENV"
+          xvfb-run -a "$BLENDER_DIR/blender" --version
+
+      - name: Build the unified model in Blender
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+
+          head_scale = float(os.environ["HEAD_SCALE"])
+          voxel_size = float(os.environ["VOXEL_SIZE"])
+          if not 0.05 <= head_scale <= 3.0:
+              raise SystemExit("head_scale must be between 0.05 and 3.0")
+          if not 0.01 <= voxel_size <= 5.0:
+              raise SystemExit("voxel_size must be between 0.01 and 5.0")
+          print(f"head_scale={head_scale}, voxel_size={voxel_size}")
+          PY
+
+          xvfb-run -a -s "-screen 0 1024x768x24" "$BLENDER" \
+            --background \
+            --factory-startup \
+            -noaudio \
+            --python scripts/merge_chibi.py \
+            -- \
+            --body "body base.blend" \
+            --head "Chibi_head.stl" \
+            --out-dir . \
+            --head-scale "$HEAD_SCALE" \
+            --voxel-size "$VOXEL_SIZE"
+
+      - name: Validate STL files
+        run: |
+          set -euo pipefail
+          mkdir -p validation preview
+
+          python scripts/validate_stl.py Chibi_full.stl \
+            --require-positive-volume \
+            --min-triangles 90000 \
+            --json-out validation/Chibi_full.json
+
+          python scripts/validate_stl.py Chibi_full_fused.stl \
+            --require-watertight \
+            --require-single-component \
+            --require-positive-volume \
+            --min-triangles 100000 \
+            --json-out validation/Chibi_full_fused.json
+
+      - name: Render preview views
+        run: |
+          set -euo pipefail
+          python scripts/render_stl_preview.py \
+            Chibi_full.stl \
+            preview/Chibi_full_views.png
+          python scripts/render_stl_preview.py \
+            Chibi_full_fused.stl \
+            preview/Chibi_full_fused_views.png
+
+      - name: Show generated files in the job summary
+        run: |
+          set -euo pipefail
+          {
+            echo "## Unified Chibi model"
+            echo
+            echo "- Head scale: \`$HEAD_SCALE\`"
+            echo "- Fused voxel size: \`$VOXEL_SIZE\`"
+            echo
+            echo "| File | Size |"
+            echo "| --- | ---: |"
+            for file in \
+              Chibi_full.blend \
+              Chibi_full.stl \
+              Chibi_full.glb \
+              Chibi_full_fused.stl \
+              Chibi_full_report.json \
+              preview/Chibi_full_views.png \
+              preview/Chibi_full_fused_views.png
+            do
+              size="$(du -h "$file" | cut -f1)"
+              echo "| \`$file\` | $size |"
+            done
+            echo
+            echo "### Fused STL validation"
+            echo
+            echo '```json'
+            cat validation/Chibi_full_fused.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          ls -lh \
+            Chibi_full.blend \
+            Chibi_full.stl \
+            Chibi_full.glb \
+            Chibi_full_fused.stl \
+            Chibi_full_report.json \
+            preview/Chibi_full_views.png \
+            preview/Chibi_full_fused_views.png \
+            validation/Chibi_full.json \
+            validation/Chibi_full_fused.json
+
+      - name: Upload model as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chibi-full-model-${{ github.run_id }}
+          path: |
+            Chibi_full.blend
+            Chibi_full.stl
+            Chibi_full.glb
+            Chibi_full_fused.stl
+            Chibi_full_report.json
+            preview/Chibi_full_views.png
+            preview/Chibi_full_fused_views.png
+            validation/Chibi_full.json
+            validation/Chibi_full_fused.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit generated files to the selected branch
+        if: ${{ github.event_name == 'push' || inputs.commit_results }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -- \
+            Chibi_full.blend \
+            Chibi_full.stl \
+            Chibi_full.glb \
+            Chibi_full_fused.stl \
+            Chibi_full_report.json \
+            preview/Chibi_full_views.png \
+            preview/Chibi_full_fused_views.png
+
+          if git diff --cached --quiet; then
+            echo "Generated files are unchanged; nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "Build unified Chibi model [skip ci]"
+          git fetch origin "$TARGET_BRANCH"
+          git rebase FETCH_HEAD
+          git push origin "HEAD:$TARGET_BRANCH"
