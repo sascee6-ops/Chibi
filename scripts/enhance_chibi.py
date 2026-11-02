@@ -1,9 +1,12 @@
-"""Sculpt-smooth the fused Chibi model and give it a pretty skin texture.
+"""Sculpt-smooth the joined Chibi model and give it a pretty skin texture.
 
-Input is the watertight fused STL built by ``scripts/merge_chibi.py``.
+Input is the joined STL (``Chibi_full.stl``) built by
+``scripts/merge_chibi.py`` -- the full-detail body/head geometry *before*
+the coarse fused remesh, so no fine original forms are lost.
 The pipeline is:
 
-1. re-voxel-remesh with a finer voxel size (higher, even quad density);
+1. re-voxel-remesh with a fine voxel size (higher, even quad density)
+   which also fuses the joined shells into one watertight surface;
 2. a gentle sculpt-style smooth pass (keeps the surface watertight);
 3. paint soft skin tones into a vertex-colour layer: light peach skin,
    pink cheeks / nose tip / lips, faint warm fingertips, toes and knees;
@@ -17,8 +20,8 @@ Run with Blender, for example:
 
     blender --background --factory-startup -noaudio \
         --python scripts/enhance_chibi.py -- \
-        --input Chibi_full_fused.stl --out-dir . \
-        --voxel-size 0.20 --texture-size 2048
+        --input Chibi_full.stl --out-dir . \
+        --voxel-size 0.14 --texture-size 4096
 
 Face landmarks below were measured on the placed head (face looks to -Y):
 nose tip is the most forward point at about (0.1, -7.29, 63.9); the eye
@@ -53,13 +56,13 @@ import merge_chibi as mc  # noqa: E402
 def parse_args() -> argparse.Namespace:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     p = argparse.ArgumentParser()
-    p.add_argument("--input", default="Chibi_full_fused.stl")
+    p.add_argument("--input", default="Chibi_full.stl")
     p.add_argument("--out-dir", default=".")
     p.add_argument("--name", default="Chibi_pretty")
-    p.add_argument("--voxel-size", type=float, default=0.20)
-    p.add_argument("--smooth-factor", type=float, default=0.40)
-    p.add_argument("--smooth-iterations", type=int, default=3)
-    p.add_argument("--texture-size", type=int, default=2048)
+    p.add_argument("--voxel-size", type=float, default=0.14)
+    p.add_argument("--smooth-factor", type=float, default=0.25)
+    p.add_argument("--smooth-iterations", type=int, default=2)
+    p.add_argument("--texture-size", type=int, default=4096)
     p.add_argument("--bake-samples", type=int, default=8)
     p.add_argument("--render-samples", type=int, default=32)
     p.add_argument("--render-width", type=int, default=800)
@@ -161,6 +164,38 @@ def paint_skin_colors(obj: bpy.types.Object) -> dict:
     warm = hex_srgb_to_linear(WARM)
     colors[feet_mask] = colors[feet_mask] * 0.88 + warm[None, :] * 0.12
     painted["feet"] = int(feet_mask.sum())
+
+    # cute freckles across the nose and cheeks: deterministic tiny dots,
+    # painted per-vertex on the front-facing part of the face
+    rng = np.random.default_rng(7)
+    centers_x = np.clip(rng.normal(0.0, 2.1, 110), -4.6, 4.6)
+    centers_z = np.clip(64.3 + rng.normal(0.0, 0.55, 110), 63.2, 65.4)
+    face_mask = (
+        (np.abs(verts[:, 0]) < 5.0)
+        & (verts[:, 1] < -4.5)
+        & (verts[:, 2] > 62.8)
+        & (verts[:, 2] < 65.8)
+        & (normals[:, 1] < -0.3)
+    )
+    if face_mask.any():
+        fv = verts[face_mask]
+        dx = fv[:, 0][:, None] - centers_x[None, :]
+        dz = fv[:, 2][:, None] - centers_z[None, :]
+        dist = np.sqrt((dx**2 + dz**2).min(axis=1))
+        weights = 0.38 * np.exp(-((dist / 0.11) ** 2))
+        freckle = hex_srgb_to_linear("#C98A5E")
+        colors[face_mask] = (
+            colors[face_mask] * (1.0 - weights[:, None])
+            + freckle[None, :] * weights[:, None]
+        )
+        painted["freckles"] = int((weights > 0.05).sum())
+
+    # slightly pinker fingertips
+    tip_mask = (np.abs(verts[:, 0]) > 21.3) & (verts[:, 2] > 30.0) & (verts[:, 2] < 42.0)
+    if tip_mask.any():
+        tip = hex_srgb_to_linear("#FFC4D6")
+        colors[tip_mask] = colors[tip_mask] * 0.85 + tip[None, :] * 0.15
+        painted["fingertips"] = int(tip_mask.sum())
 
     colors[:, 3] = 1.0
     existing = mesh.color_attributes.get("SkinPaint")
