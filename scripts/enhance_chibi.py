@@ -67,7 +67,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--smooth-iterations", type=int, default=2)
     p.add_argument("--texture-size", type=int, default=8192)
     p.add_argument("--bake-samples", type=int, default=8)
-    p.add_argument("--render-samples", type=int, default=64)
+    p.add_argument("--render-samples", type=int, default=96)
     p.add_argument("--render-width", type=int, default=1000)
     p.add_argument("--skip-render", action="store_true")
     args = p.parse_args(argv)
@@ -107,6 +107,11 @@ EYELIDS = "#FFB3C0"
 NOSE = "#FF968F"
 LIPS = "#F67A9C"
 WARM = "#FFB79D"
+SKIN_GLOW = "#FFE9D6"
+SKIN_COOL = "#F0C2B0"
+CHEEK_HALO = "#FFA99E"
+FRECKLE = "#BE7B4F"
+BEAUTY_MARK = "#8A563E"
 
 
 def _blob(verts, normals, center, radii, strength, need_front=True):
@@ -150,14 +155,55 @@ def paint_skin_colors(obj: bpy.types.Object) -> dict:
         colors[:] = colors * (1.0 - weights[:, None]) + color[None, :] * weights[:, None]
         return int((weights > 0.05).sum())
 
+    # Bake-only spatial roughness zones.  The red channel stores the
+    # Principled roughness value directly; this attribute is removed
+    # again after baking so it is not exported as a second colour layer.
+    rough = np.full((count, 4), 0.52, dtype=np.float64)
+    rough[:, 3] = 1.0
+
+    def apply_rough_blob(center, radii, target, strength, need_front=True):
+        weights = _blob(verts, normals, center, radii, strength, need_front)
+        rough[:, :3] = (
+            rough[:, :3] * (1.0 - weights[:, None])
+            + float(target) * weights[:, None]
+        )
+        return int((weights > 0.05).sum())
+
     painted = {}
-    # cute blush: cheeks, nose tip, lips (measured face landmarks)
-    painted["cheek_left"] = apply_blob((-3.15, -6.1, 63.8), (1.55, 2.2, 1.05), BLUSH, 0.72)
-    painted["cheek_right"] = apply_blob((3.15, -6.1, 63.8), (1.55, 2.2, 1.05), BLUSH, 0.72)
-    painted["eyelids"] = apply_blob((-2.4, -5.9, 66.0), (1.1, 1.8, 0.55), EYELIDS, 0.22)
-    painted["eyelids"] += apply_blob((2.4, -5.9, 66.0), (1.1, 1.8, 0.55), EYELIDS, 0.22)
-    painted["nose"] = apply_blob((0.05, -7.25, 63.95), (0.55, 0.9, 0.50), NOSE, 0.55)
-    painted["lips"] = apply_blob((0.0, -6.75, 62.75), (0.55, 1.0, 0.35), LIPS, 0.48)
+    # Very soft baked form light: pale warm light on upward faces and
+    # a cooler skin tone underneath.  Kept subtle so real lighting in
+    # Blender/viewers still does most of the modelling.
+    glow = hex_srgb_to_linear(SKIN_GLOW)
+    top_weights = 0.10 * np.clip((normals[:, 2] - 0.10) / 0.70, 0.0, 1.0) ** 1.4
+    colors[:] = colors * (1.0 - top_weights[:, None]) + glow[None, :] * top_weights[:, None]
+    painted["top_light"] = int((top_weights > 0.02).sum())
+    cool = hex_srgb_to_linear(SKIN_COOL)
+    shade_weights = 0.08 * np.clip((-normals[:, 2] - 0.20) / 0.55, 0.0, 1.0) ** 1.4
+    colors[:] = colors * (1.0 - shade_weights[:, None]) + cool[None, :] * shade_weights[:, None]
+    painted["cool_shade"] = int((shade_weights > 0.02).sum())
+
+    # layered living blush: broad face glow, cheek halo, then the
+    # measured cheeks / eyelids / nose / lips
+    painted["face_glow"] = apply_blob((0.0, -6.35, 64.75), (4.2, 2.6, 2.8), SKIN_GLOW, 0.20)
+    painted["forehead_glow"] = apply_blob((0.0, -5.7, 68.1), (3.5, 2.8, 1.8), SKIN_GLOW, 0.16)
+    painted["cheek_halo"] = apply_blob((-3.15, -6.1, 63.8), (2.25, 2.7, 1.6), CHEEK_HALO, 0.30)
+    painted["cheek_halo"] += apply_blob((3.15, -6.1, 63.8), (2.25, 2.7, 1.6), CHEEK_HALO, 0.30)
+    painted["cheek_left"] = apply_blob((-3.15, -6.1, 63.8), (1.55, 2.2, 1.05), BLUSH, 0.78)
+    painted["cheek_right"] = apply_blob((3.15, -6.1, 63.8), (1.55, 2.2, 1.05), BLUSH, 0.78)
+    painted["eyelids"] = apply_blob((-2.4, -5.9, 66.0), (1.1, 1.8, 0.55), EYELIDS, 0.30)
+    painted["eyelids"] += apply_blob((2.4, -5.9, 66.0), (1.1, 1.8, 0.55), EYELIDS, 0.30)
+    painted["nose"] = apply_blob((0.05, -7.25, 63.95), (0.55, 0.9, 0.50), NOSE, 0.62)
+    painted["lips"] = apply_blob((0.0, -6.75, 62.75), (0.55, 1.0, 0.35), LIPS, 0.58)
+    painted["beauty_mark"] = apply_blob((1.75, -6.85, 63.08), (0.14, 0.28, 0.14), BEAUTY_MARK, 0.58)
+
+    # satin-smooth facial roughness zones; the body keeps a softer matte feel
+    painted["rough_face"] = apply_rough_blob((0.0, -6.35, 64.9), (4.6, 2.7, 3.0), 0.43, 0.55)
+    painted["rough_cheeks"] = apply_rough_blob((-3.15, -6.1, 63.8), (1.9, 2.4, 1.3), 0.46, 0.35)
+    painted["rough_cheeks"] += apply_rough_blob((3.15, -6.1, 63.8), (1.9, 2.4, 1.3), 0.46, 0.35)
+    painted["rough_eyelids"] = apply_rough_blob((-2.4, -5.9, 66.0), (1.15, 1.8, 0.6), 0.37, 0.45)
+    painted["rough_eyelids"] += apply_rough_blob((2.4, -5.9, 66.0), (1.15, 1.8, 0.6), 0.37, 0.45)
+    painted["rough_nose"] = apply_rough_blob((0.05, -7.25, 63.95), (0.7, 1.0, 0.6), 0.36, 0.75)
+    painted["rough_lips"] = apply_rough_blob((0.0, -6.75, 62.75), (0.65, 1.05, 0.42), 0.30, 0.85)
     # faint warm tint on hands, feet and knees
     painted["hands"] = apply_blob((-22.0, 0.0, 36.0), (2.5, 3.5, 4.0), WARM, 0.18, False)
     painted["hands"] += apply_blob((22.0, 0.0, 36.0), (2.5, 3.5, 4.0), WARM, 0.18, False)
@@ -166,13 +212,18 @@ def paint_skin_colors(obj: bpy.types.Object) -> dict:
     feet_mask = verts[:, 2] < (z_min + 2.5)
     warm = hex_srgb_to_linear(WARM)
     colors[feet_mask] = colors[feet_mask] * 0.88 + warm[None, :] * 0.12
+    rough[feet_mask, :3] = rough[feet_mask, :3] * 0.72 + 0.60 * 0.28
     painted["feet"] = int(feet_mask.sum())
+    painted["rough_hands"] = apply_rough_blob((-22.0, 0.0, 36.0), (2.6, 3.6, 4.2), 0.45, 0.25, False)
+    painted["rough_hands"] += apply_rough_blob((22.0, 0.0, 36.0), (2.6, 3.6, 4.2), 0.45, 0.25, False)
 
     # cute freckles across the nose and cheeks: deterministic tiny dots,
     # painted per-vertex on the front-facing part of the face
     rng = np.random.default_rng(7)
-    centers_x = np.clip(rng.normal(0.0, 2.1, 110), -4.6, 4.6)
-    centers_z = np.clip(64.3 + rng.normal(0.0, 0.55, 110), 63.2, 65.4)
+    centers_x = np.clip(rng.normal(0.0, 2.1, 170), -4.6, 4.6)
+    centers_z = np.clip(64.3 + rng.normal(0.0, 0.55, 170), 63.2, 65.4)
+    soft_x = np.clip(rng.normal(0.0, 2.7, 64), -5.0, 5.0)
+    soft_z = np.clip(64.25 + rng.normal(0.0, 0.65, 64), 63.1, 65.5)
     face_mask = (
         (np.abs(verts[:, 0]) < 5.0)
         & (verts[:, 1] < -4.5)
@@ -185,20 +236,42 @@ def paint_skin_colors(obj: bpy.types.Object) -> dict:
         dx = fv[:, 0][:, None] - centers_x[None, :]
         dz = fv[:, 2][:, None] - centers_z[None, :]
         dist = np.sqrt((dx**2 + dz**2).min(axis=1))
-        weights = 0.38 * np.exp(-((dist / 0.11) ** 2))
-        freckle = hex_srgb_to_linear("#C98A5E")
+        soft_dx = fv[:, 0][:, None] - soft_x[None, :]
+        soft_dz = fv[:, 2][:, None] - soft_z[None, :]
+        soft_dist = np.sqrt((soft_dx**2 + soft_dz**2).min(axis=1))
+        weights = np.maximum(
+            0.34 * np.exp(-((dist / 0.12) ** 2)),
+            0.15 * np.exp(-((soft_dist / 0.24) ** 2)),
+        )
+        freckle = hex_srgb_to_linear(FRECKLE)
         colors[face_mask] = (
             colors[face_mask] * (1.0 - weights[:, None])
             + freckle[None, :] * weights[:, None]
         )
         painted["freckles"] = int((weights > 0.05).sum())
 
-    # slightly pinker fingertips
+    # gradually pinker fingertips (no hard mask edge)
     tip_mask = (np.abs(verts[:, 0]) > 21.3) & (verts[:, 2] > 30.0) & (verts[:, 2] < 42.0)
     if tip_mask.any():
         tip = hex_srgb_to_linear("#FFC4D6")
-        colors[tip_mask] = colors[tip_mask] * 0.85 + tip[None, :] * 0.15
+        tip_weights = 0.26 * np.clip((np.abs(verts[tip_mask, 0]) - 20.6) / 1.8, 0.06, 1.0)
+        colors[tip_mask] = (
+            colors[tip_mask] * (1.0 - tip_weights[:, None])
+            + tip[None, :] * tip_weights[:, None]
+        )
+        rough_weights = tip_weights * 0.45
+        rough[tip_mask, :3] = (
+            rough[tip_mask, :3] * (1.0 - rough_weights[:, None])
+            + 0.42 * rough_weights[:, None]
+        )
         painted["fingertips"] = int(tip_mask.sum())
+
+    # and the same barely-there pink on the very fronts of the toes
+    toe_mask = (verts[:, 2] < (z_min + 2.8)) & (verts[:, 1] < -5.5)
+    if toe_mask.any():
+        tip = hex_srgb_to_linear("#FFC4D6")
+        colors[toe_mask] = colors[toe_mask] * 0.90 + tip[None, :] * 0.10
+        painted["toes"] = int(toe_mask.sum())
 
     colors[:, 3] = 1.0
     existing = mesh.color_attributes.get("SkinPaint")
@@ -206,6 +279,12 @@ def paint_skin_colors(obj: bpy.types.Object) -> dict:
         mesh.color_attributes.remove(existing)
     attr = mesh.color_attributes.new(name="SkinPaint", type="FLOAT_COLOR", domain="POINT")
     attr.data.foreach_set("color", colors.ravel())
+    rough[:, 3] = 1.0
+    existing_rough = mesh.color_attributes.get("SkinRoughness")
+    if existing_rough:
+        mesh.color_attributes.remove(existing_rough)
+    rough_attr = mesh.color_attributes.new(name="SkinRoughness", type="FLOAT_COLOR", domain="POINT")
+    rough_attr.data.foreach_set("color", rough.ravel())
     mesh.color_attributes.active_color = attr
     mesh.update()
     print(f"SkinPaint vertex colours: {painted}")
@@ -242,14 +321,15 @@ def _map_range(nodes, name, x, y, to_min, to_max):
 
 def _skin_bsdf_values(bsdf) -> None:
     set_input(bsdf, "Metallic", 0.0)
-    set_input(bsdf, "Specular IOR Level", 0.35)
-    set_input(bsdf, "Subsurface Weight", 0.35)
-    set_input(bsdf, "Subsurface Radius", (2.4, 1.2, 0.7))
-    set_input(bsdf, "Sheen Weight", 0.18)
-    set_input(bsdf, "Sheen Roughness", 0.55)
+    set_input(bsdf, "Specular IOR Level", 0.45)
+    set_input(bsdf, "Specular Tint", (1.0, 0.94, 0.90, 1.0))
+    set_input(bsdf, "Subsurface Weight", 0.44)
+    set_input(bsdf, "Subsurface Radius", (2.0, 1.0, 0.6))
+    set_input(bsdf, "Sheen Weight", 0.24)
+    set_input(bsdf, "Sheen Roughness", 0.5)
     set_input(bsdf, "Sheen Tint", (1.0, 0.82, 0.72, 1.0))
-    set_input(bsdf, "Coat Weight", 0.06)
-    set_input(bsdf, "Coat Roughness", 0.5)
+    set_input(bsdf, "Coat Weight", 0.08)
+    set_input(bsdf, "Coat Roughness", 0.42)
 
 
 def build_source_material(obj: bpy.types.Object) -> bpy.types.Material:
@@ -276,9 +356,9 @@ def build_source_material(obj: bpy.types.Object) -> bpy.types.Material:
     links.new(tex_coord.outputs["Object"], mid.inputs["Vector"])
     links.new(tex_coord.outputs["Object"], fine.inputs["Vector"])
 
-    coarse_range = _map_range(nodes, "ToneRange", -680, 0, 0.955, 1.0)
-    mid_range = _map_range(nodes, "MottleRange", -680, -125, 0.965, 1.0)
-    fine_range = _map_range(nodes, "PoreRange", -680, -250, 0.97, 1.0)
+    coarse_range = _map_range(nodes, "ToneRange", -680, 0, 0.94, 1.01)
+    mid_range = _map_range(nodes, "MottleRange", -680, -125, 0.95, 1.01)
+    fine_range = _map_range(nodes, "PoreRange", -680, -250, 0.955, 1.0)
     links.new(mid.outputs["Fac"], mid_range.inputs["Value"])
     links.new(coarse.outputs["Fac"], coarse_range.inputs["Value"])
     links.new(fine.outputs["Fac"], fine_range.inputs["Value"])
@@ -302,13 +382,58 @@ def build_source_material(obj: bpy.types.Object) -> bpy.types.Material:
     mix3.location = (-60, 250)
     links.new(mix2.outputs["Color"], mix3.inputs["Color1"])
     links.new(mid_range.outputs["Result"], mix3.inputs["Color2"])
-    links.new(mix3.outputs["Color"], bsdf.inputs["Base Color"])
+    # a whisper of baked ambient occlusion gives the albedo cinematic
+    # depth in folds and under the chin in every viewer, not just Cycles
+    ao = nodes.new("ShaderNodeAmbientOcclusion")
+    ao.location = (-260, -25)
+    try:
+        ao.samples = 12
+    except Exception:
+        pass
+    set_input(ao, "Distance", 2.5)
+    ao_range = _map_range(nodes, "AORange", -80, -25, 0.94, 1.0)
+    links.new(ao.outputs["AO"], ao_range.inputs["Value"])
+    mix4 = nodes.new("ShaderNodeMixRGB")
+    mix4.blend_type = "MULTIPLY"
+    mix4.inputs["Fac"].default_value = 1.0
+    mix4.location = (120, 250)
+    links.new(mix3.outputs["Color"], mix4.inputs["Color1"])
+    links.new(ao_range.outputs["Result"], mix4.inputs["Color2"])
+    links.new(mix4.outputs["Color"], bsdf.inputs["Base Color"])
 
-    rough_noise = _noise(nodes, "RoughNoise", -900, -500, 6.0, 1.0, 0.6)
+    # spatial roughness zones (SkinRoughness vertex layer) plus two
+    # octaves of satin variation, so highlights glide like real skin
+    rough_vcol = nodes.new("ShaderNodeVertexColor")
+    rough_vcol.layer_name = "SkinRoughness"
+    rough_vcol.location = (-900, -650)
+    rough_separate = nodes.new("ShaderNodeSeparateColor")
+    rough_separate.location = (-710, -650)
+    try:
+        rough_separate.mode = "RGB"
+    except Exception:
+        pass
+    links.new(rough_vcol.outputs["Color"], rough_separate.inputs["Color"])
+
+    rough_noise = _noise(nodes, "RoughNoise", -900, -500, 6.0, 2.0, 0.6)
     links.new(tex_coord.outputs["Object"], rough_noise.inputs["Vector"])
-    rough_range = _map_range(nodes, "RoughRange", -680, -500, 0.47, 0.53)
+    rough_range = _map_range(nodes, "RoughRange", -680, -500, -0.035, 0.035)
+    pore_rough_range = _map_range(nodes, "PoreRoughRange", -680, -625, -0.015, 0.015)
     links.new(rough_noise.outputs["Fac"], rough_range.inputs["Value"])
-    links.new(rough_range.outputs["Result"], bsdf.inputs["Roughness"])
+    links.new(fine.outputs["Fac"], pore_rough_range.inputs["Value"])
+
+    rough_add1 = nodes.new("ShaderNodeMath")
+    rough_add1.operation = "ADD"
+    rough_add1.use_clamp = True
+    rough_add1.location = (-440, -560)
+    links.new(rough_separate.outputs["Red"], rough_add1.inputs[0])
+    links.new(rough_range.outputs["Result"], rough_add1.inputs[1])
+    rough_add2 = nodes.new("ShaderNodeMath")
+    rough_add2.operation = "ADD"
+    rough_add2.use_clamp = True
+    rough_add2.location = (-240, -560)
+    links.new(rough_add1.outputs["Value"], rough_add2.inputs[0])
+    links.new(pore_rough_range.outputs["Result"], rough_add2.inputs[1])
+    links.new(rough_add2.outputs["Value"], bsdf.inputs["Roughness"])
 
     bump = nodes.new("ShaderNodeBump")
     bump.location = (-260, -150)
@@ -361,9 +486,9 @@ def _height_to_normal(height_image, normal_image, size: int) -> None:
     del height
     # the noise is fractal, so per-texel gradients barely shrink with
     # resolution -- a constant strength keeps the relief consistent
-    strength = 2.5
-    nx = _soften(_soften(_soften(-grad_x * strength)))
-    ny = _soften(_soften(_soften(-grad_y * strength)))
+    strength = 3.0
+    nx = _soften(_soften(-grad_x * strength))
+    ny = _soften(_soften(-grad_y * strength))
     del grad_x, grad_y
     # perfectly flat background outside the baked area (keeps the PNG
     # small); the softened coverage mask fills the odd mid-grey texel
@@ -480,13 +605,13 @@ def bake_textures(obj, mat, tex_dir: Path, size: int, samples: int):
     set_input(h_emit, "Strength", 1.0)
     h_coord = h_nodes.new("ShaderNodeTexCoord")
     h_coord.location = (-700, 0)
-    h_fine = _noise(h_nodes, "HeightPores", -450, 100, 18.0, 2.0, 0.55)
-    h_mid = _noise(h_nodes, "HeightMicro", -450, -150, 5.0, 2.0, 0.6)
+    h_fine = _noise(h_nodes, "HeightPores", -450, 100, 22.0, 3.0, 0.55)
+    h_mid = _noise(h_nodes, "HeightMicro", -450, -150, 7.0, 2.0, 0.6)
     h_links.new(h_coord.outputs["Object"], h_fine.inputs["Vector"])
     h_links.new(h_coord.outputs["Object"], h_mid.inputs["Vector"])
     h_mix = h_nodes.new("ShaderNodeMixRGB")
     h_mix.blend_type = "MIX"
-    h_mix.inputs["Fac"].default_value = 0.3
+    h_mix.inputs["Fac"].default_value = 0.26
     h_mix.location = (-150, 0)
     h_links.new(h_fine.outputs["Fac"], h_mix.inputs["Color1"])
     h_links.new(h_mid.outputs["Fac"], h_mix.inputs["Color2"])
@@ -538,7 +663,7 @@ def build_final_material(obj, img_base, img_rough, img_normal) -> bpy.types.Mate
 
     normal_map = nodes.new("ShaderNodeNormalMap")
     normal_map.location = (-260, -250)
-    set_input(normal_map, "Strength", 0.6)
+    set_input(normal_map, "Strength", 0.74)
     links.new(normal_node.outputs["Color"], normal_map.inputs["Color"])
     links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
 
@@ -715,6 +840,10 @@ def main() -> None:
     img_base, img_rough, img_normal, base_path, rough_path, normal_path = bake_textures(
         obj, source_mat, out_dir / "textures", args.texture_size, args.bake_samples
     )
+    # SkinRoughness was bake-only guidance; keep exports lean
+    rough_attr = obj.data.color_attributes.get("SkinRoughness")
+    if rough_attr:
+        obj.data.color_attributes.remove(rough_attr)
     final_mat = build_final_material(obj, img_base, img_rough, img_normal)
     if source_mat.name in bpy.data.materials:
         bpy.data.materials.remove(source_mat)
