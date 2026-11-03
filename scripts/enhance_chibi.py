@@ -395,6 +395,10 @@ def _write_image_png(image, path: Path) -> None:
     del rgb
     image.filepath_raw = str(path)
     image.file_format = "PNG"
+    # a GENERATED image *regenerates* (flat generated_color) on reload,
+    # which silently flattened the GLB/preview textures in one build --
+    # switch to FILE so reload reads the baked master back from disk
+    image.source = "FILE"
     image.reload()  # pack()/export embed the compact file bytes
     print(f"Saved {path} ({path.stat().st_size} bytes)")
 

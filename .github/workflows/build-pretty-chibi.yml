@@ -215,6 +215,11 @@ jobs:
           from pathlib import Path
 
           from PIL import Image
+          import numpy as np
+
+          def img_std(im):
+              a = np.asarray(im.convert("RGB").resize((256, 256))).astype(np.float32)
+              return float(a.std())
 
           expected = int(os.environ["TEXTURE_SIZE"])
           base = Path("textures/skin_basecolor.png")
@@ -229,6 +234,10 @@ jobs:
           assert base_size == (expected, expected), base_size
           assert rough_size == (expected, expected), rough_size
           assert normal_size == (expected, expected), normal_size
+          for p in (base, rough, normal):
+              with Image.open(p) as im:
+                  s = img_std(im)
+              assert s > 0.05, (str(p), s)
 
           glb_path = Path("Chibi_pretty.glb")
           data = glb_path.read_bytes()
@@ -263,9 +272,11 @@ jobs:
                           "name": image.get("name"),
                           "mime": image.get("mimeType"),
                           "size": list(im.size),
+                          "std": img_std(im),
                       }
                   )
           assert all(tuple(e["size"]) == (expected, expected) for e in embedded), embedded
+          assert all(e["std"] > 0.05 for e in embedded), embedded
 
           report = {
               "glb": str(glb_path),
@@ -363,7 +374,7 @@ jobs:
         if: always()
         run: |
           for f in Chibi_pretty.blend Chibi_pretty.glb Chibi_pretty.stl textures/skin_basecolor.png textures/skin_roughness.png textures/skin_normal.png preview/Chibi_pretty_front.png preview/Chibi_pretty_threequarter.png preview/Chibi_pretty_closeup.png; do
-            echo "::notice title=size $f::$(stat -c%s \"$f\" 2>/dev/null || echo missing) bytes"
+            echo "::notice title=size $f::$(stat -c%s "$f" 2>/dev/null || echo missing) bytes"
           done
 
       - name: Commit generated files to the selected branch
