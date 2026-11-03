@@ -12,7 +12,9 @@ The pipeline is:
    pink cheeks / nose tip / lips, faint warm fingertips, toes and knees;
 4. build a procedural Cycles skin material (vertex colours + very fine
    pore noise + soft subsurface scattering);
-5. Smart-UV-project and bake base-colour / roughness textures;
+5. Smart-UV-project and bake base-colour / roughness / normal
+   textures -- every map at the full ``--texture-size``
+   (production: pure 8192x8192, no downscaled maps);
 6. export a textured ``.blend`` / ``.glb`` and the smoother geometry as
    ``.stl``, plus soft Cycles preview renders.
 
@@ -21,7 +23,7 @@ Run with Blender, for example:
     blender --background --factory-startup -noaudio \
         --python scripts/enhance_chibi.py -- \
         --input Chibi_full.stl --out-dir . \
-        --voxel-size 0.14 --texture-size 4096
+        --voxel-size 0.12 --texture-size 8192
 
 Face landmarks below were measured on the placed head (face looks to -Y):
 nose tip is the most forward point at about (0.1, -7.29, 63.9); the eye
@@ -59,13 +61,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--input", default="Chibi_full.stl")
     p.add_argument("--out-dir", default=".")
     p.add_argument("--name", default="Chibi_pretty")
-    p.add_argument("--voxel-size", type=float, default=0.14)
+    p.add_argument("--voxel-size", type=float, default=0.12)
     p.add_argument("--smooth-factor", type=float, default=0.25)
     p.add_argument("--smooth-iterations", type=int, default=2)
-    p.add_argument("--texture-size", type=int, default=4096)
+    p.add_argument("--texture-size", type=int, default=8192)
     p.add_argument("--bake-samples", type=int, default=8)
-    p.add_argument("--render-samples", type=int, default=32)
-    p.add_argument("--render-width", type=int, default=800)
+    p.add_argument("--render-samples", type=int, default=64)
+    p.add_argument("--render-width", type=int, default=1000)
     p.add_argument("--skip-render", action="store_true")
     args = p.parse_args(argv)
     if args.voxel_size <= 0:
@@ -265,12 +267,18 @@ def build_source_material(obj: bpy.types.Object) -> bpy.types.Material:
     vcol.location = (-900, 350)
 
     coarse = _noise(nodes, "ToneNoise", -900, 0, 6.0, 3.0, 0.65)
-    fine = _noise(nodes, "PoreNoise", -900, -250, 160.0, 2.0, 0.55)
+    mid = _noise(nodes, "MottleNoise", -900, -125, 28.0, 2.0, 0.6)
+    # object-space noise: feature size ~= 1/scale model units, so 24
+    # gives ~0.04-unit pores (a few texels wide in an 8K map)
+    fine = _noise(nodes, "PoreNoise", -900, -250, 24.0, 2.0, 0.55)
     links.new(tex_coord.outputs["Object"], coarse.inputs["Vector"])
+    links.new(tex_coord.outputs["Object"], mid.inputs["Vector"])
     links.new(tex_coord.outputs["Object"], fine.inputs["Vector"])
 
     coarse_range = _map_range(nodes, "ToneRange", -680, 0, 0.955, 1.0)
-    fine_range = _map_range(nodes, "PoreRange", -680, -250, 0.93, 1.0)
+    mid_range = _map_range(nodes, "MottleRange", -680, -125, 0.965, 1.0)
+    fine_range = _map_range(nodes, "PoreRange", -680, -250, 0.97, 1.0)
+    links.new(mid.outputs["Fac"], mid_range.inputs["Value"])
     links.new(coarse.outputs["Fac"], coarse_range.inputs["Value"])
     links.new(fine.outputs["Fac"], fine_range.inputs["Value"])
 
@@ -287,18 +295,24 @@ def build_source_material(obj: bpy.types.Object) -> bpy.types.Material:
     mix2.location = (-260, 250)
     links.new(mix1.outputs["Color"], mix2.inputs["Color1"])
     links.new(fine_range.outputs["Result"], mix2.inputs["Color2"])
-    links.new(mix2.outputs["Color"], bsdf.inputs["Base Color"])
+    mix3 = nodes.new("ShaderNodeMixRGB")
+    mix3.blend_type = "MULTIPLY"
+    mix3.inputs["Fac"].default_value = 1.0
+    mix3.location = (-60, 250)
+    links.new(mix2.outputs["Color"], mix3.inputs["Color1"])
+    links.new(mid_range.outputs["Result"], mix3.inputs["Color2"])
+    links.new(mix3.outputs["Color"], bsdf.inputs["Base Color"])
 
-    rough_noise = _noise(nodes, "RoughNoise", -900, -500, 45.0, 2.0, 0.6)
+    rough_noise = _noise(nodes, "RoughNoise", -900, -500, 6.0, 1.0, 0.6)
     links.new(tex_coord.outputs["Object"], rough_noise.inputs["Vector"])
-    rough_range = _map_range(nodes, "RoughRange", -680, -500, 0.42, 0.58)
+    rough_range = _map_range(nodes, "RoughRange", -680, -500, 0.47, 0.53)
     links.new(rough_noise.outputs["Fac"], rough_range.inputs["Value"])
     links.new(rough_range.outputs["Result"], bsdf.inputs["Roughness"])
 
     bump = nodes.new("ShaderNodeBump")
     bump.location = (-260, -150)
-    set_input(bump, "Strength", 0.012)
-    set_input(bump, "Distance", 0.04)
+    set_input(bump, "Strength", 0.02)
+    set_input(bump, "Distance", 0.05)
     links.new(fine.outputs["Fac"], bump.inputs["Height"])
     links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
 
@@ -307,12 +321,76 @@ def build_source_material(obj: bpy.types.Object) -> bpy.types.Material:
     return mat
 
 
+def _soften(values: np.ndarray) -> np.ndarray:
+    """One cross-shaped blur pass (removes single-texel grain)."""
+    return (
+        values * 2.0
+        + np.roll(values, 1, axis=0)
+        + np.roll(values, -1, axis=0)
+        + np.roll(values, 1, axis=1)
+        + np.roll(values, -1, axis=1)
+    ) / 6.0
+
+
+def _height_to_normal(height_image, normal_image, size: int) -> None:
+    """Convert a baked height image into an OpenGL tangent-space normal map."""
+    pixels = np.empty(size * size * 4, dtype=np.float32)
+    height_image.pixels.foreach_get(pixels)
+    height = pixels.reshape(-1, 4)[:, 0].reshape(size, size).copy()
+    del pixels
+    # texels the bake never touched stay black; mark them invalid so
+    # UV-island borders do not grow false relief rings
+    valid = height > 0.002
+    # soften the height so bake grain does not turn into PNG-hostile
+    # texel-level noise in the normal map; pore features span several
+    # texels and survive easily
+    height = _soften(_soften(height))
+
+    def masked_grad(axis: int) -> np.ndarray:
+        plus = np.where(
+            np.roll(valid, -1, axis=axis), np.roll(height, -1, axis=axis), height
+        )
+        minus = np.where(
+            np.roll(valid, 1, axis=axis), np.roll(height, 1, axis=axis), height
+        )
+        return (plus - minus) * 0.5
+
+    grad_y = masked_grad(0)
+    grad_x = masked_grad(1)
+    del height
+    # the noise is fractal, so per-texel gradients barely shrink with
+    # resolution -- a constant strength keeps the relief consistent
+    strength = 3.0
+    nx = _soften(_soften(-grad_x * strength))
+    ny = _soften(_soften(-grad_y * strength))
+    del grad_x, grad_y
+    # perfectly flat background outside the baked area (keeps the PNG
+    # small); the softened coverage mask fills the odd mid-grey texel
+    # inside islands, so no flat pinholes appear on the surface
+    coverage = _soften(_soften(valid.astype(np.float32))) > 0.25
+    nx = np.where(coverage, nx, 0.0)
+    ny = np.where(coverage, ny, 0.0)
+    del valid, coverage
+    inv = (1.0 / np.sqrt(nx * nx + ny * ny + 1.0)).astype(np.float32)
+    out = np.empty((size, size, 4), dtype=np.float32)
+    out[..., 0] = nx * inv * 0.5 + 0.5
+    out[..., 1] = ny * inv * 0.5 + 0.5
+    out[..., 2] = inv * 0.5 + 0.5
+    out[..., 3] = 1.0
+    del nx, ny, inv
+    normal_image.pixels.foreach_set(out.ravel())
+    normal_image.update()
+
+
 def bake_textures(obj, mat, tex_dir: Path, size: int, samples: int):
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
     scene.cycles.device = "CPU"
     scene.cycles.samples = samples
-    scene.render.bake.margin = 16
+    scene.render.image_settings.compression = 100
+    if hasattr(scene.render, "dither_intensity"):
+        scene.render.dither_intensity = 0.0
+    scene.render.bake.margin = 32
     scene.render.bake.use_clear = True
     scene.render.bake.use_selected_to_active = False
     scene.render.bake.target = "IMAGE_TEXTURES"
@@ -333,29 +411,33 @@ def bake_textures(obj, mat, tex_dir: Path, size: int, samples: int):
 
     img_base = make_image("skin_basecolor", size, "sRGB", (1.0, 0.85, 0.75, 1.0))
     img_rough = make_image(
-        "skin_roughness", max(512, size // 2), "Non-Color", (0.45, 0.45, 0.45, 1.0)
+        "skin_roughness", size, "Non-Color", (0.5, 0.5, 0.5, 1.0)
     )
+    img_normal = make_image("skin_normal", size, "Non-Color", (0.5, 0.5, 1.0, 1.0))
 
     nodes = mat.node_tree.nodes
 
-    def bake_into(image, bake_type, out_name):
-        node = nodes.new("ShaderNodeTexImage")
+    def bake_into(image, bake_type, out_name, target_nodes=None):
+        target_nodes = target_nodes if target_nodes is not None else nodes
+        node = target_nodes.new("ShaderNodeTexImage")
         node.image = image
         node.location = (300, 300)
-        for other in nodes:
+        for other in target_nodes:
             other.select = False
         node.select = True
-        nodes.active = node
+        target_nodes.active = node
         mc.select_only([obj], active=obj)
         bpy.ops.object.mode_set(mode="OBJECT")
         print(f"Baking {bake_type} into {out_name} ...")
         bpy.ops.object.bake(type=bake_type)
+        target_nodes.remove(node)
+        if out_name is None:
+            return None
         path = tex_dir / out_name
         image.filepath_raw = str(path)
         image.file_format = "PNG"
         image.save()
         print(f"Saved {path} ({path.stat().st_size} bytes)")
-        nodes.remove(node)
         return path
 
     scene.render.bake.use_pass_direct = False
@@ -363,10 +445,55 @@ def bake_textures(obj, mat, tex_dir: Path, size: int, samples: int):
     scene.render.bake.use_pass_color = True
     base_path = bake_into(img_base, "DIFFUSE", "skin_basecolor.png")
     rough_path = bake_into(img_rough, "ROUGHNESS", "skin_roughness.png")
-    return img_base, img_rough, base_path, rough_path
+
+    # Cycles' NORMAL bake stores only geometric normals (nearly flat on
+    # a smooth surface), so bake the pore height as emission instead and
+    # convert it into a real tangent-space normal map.
+    img_height = make_image("skin_height_tmp", size, "Non-Color", (0.5, 0.5, 0.5, 1.0))
+    height_mat = bpy.data.materials.new("Height_bake")
+    height_mat.use_nodes = True
+    h_nodes = height_mat.node_tree.nodes
+    h_links = height_mat.node_tree.links
+    h_nodes.clear()
+    h_out = h_nodes.new("ShaderNodeOutputMaterial")
+    h_out.location = (300, 0)
+    h_emit = h_nodes.new("ShaderNodeEmission")
+    h_emit.location = (100, 0)
+    set_input(h_emit, "Strength", 1.0)
+    h_coord = h_nodes.new("ShaderNodeTexCoord")
+    h_coord.location = (-700, 0)
+    h_fine = _noise(h_nodes, "HeightPores", -450, 100, 18.0, 2.0, 0.55)
+    h_mid = _noise(h_nodes, "HeightMicro", -450, -150, 5.0, 2.0, 0.6)
+    h_links.new(h_coord.outputs["Object"], h_fine.inputs["Vector"])
+    h_links.new(h_coord.outputs["Object"], h_mid.inputs["Vector"])
+    h_mix = h_nodes.new("ShaderNodeMixRGB")
+    h_mix.blend_type = "MIX"
+    h_mix.inputs["Fac"].default_value = 0.3
+    h_mix.location = (-150, 0)
+    h_links.new(h_fine.outputs["Fac"], h_mix.inputs["Color1"])
+    h_links.new(h_mid.outputs["Fac"], h_mix.inputs["Color2"])
+    h_links.new(h_mix.outputs["Color"], h_emit.inputs["Color"])
+    h_links.new(h_emit.outputs["Emission"], h_out.inputs["Surface"])
+
+    obj.data.materials.clear()
+    obj.data.materials.append(height_mat)
+    bake_into(img_height, "EMIT", None, target_nodes=h_nodes)
+    obj.data.materials.clear()
+    obj.data.materials.append(mat)
+    bpy.data.materials.remove(height_mat)
+
+    print("Converting pore height to a tangent-space normal map ...")
+    _height_to_normal(img_height, img_normal, size)
+    bpy.data.images.remove(img_height)
+    normal_path = tex_dir / "skin_normal.png"
+    img_normal.filepath_raw = str(normal_path)
+    img_normal.file_format = "PNG"
+    img_normal.save()
+    print(f"Saved {normal_path} ({normal_path.stat().st_size} bytes)")
+    return img_base, img_rough, img_normal, base_path, rough_path, normal_path
 
 
-def build_final_material(obj, img_base, img_rough) -> bpy.types.Material:
+def build_final_material(obj, img_base, img_rough, img_normal) -> bpy.types.Material:
     mat = bpy.data.materials.new("Skin_textured")
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
@@ -387,17 +514,18 @@ def build_final_material(obj, img_base, img_rough) -> bpy.types.Material:
     links.new(base_node.outputs["Color"], bsdf.inputs["Base Color"])
     links.new(rough_node.outputs["Color"], bsdf.inputs["Roughness"])
 
-    # keep the micro-pore bump in the Blender material (glTF keeps the maps)
-    tex_coord = nodes.new("ShaderNodeTexCoord")
-    tex_coord.location = (-750, -350)
-    fine = _noise(nodes, "PoreNoiseFinal", -500, -350, 160.0, 2.0, 0.55)
-    links.new(tex_coord.outputs["Object"], fine.inputs["Vector"])
-    bump = nodes.new("ShaderNodeBump")
-    bump.location = (-260, -250)
-    set_input(bump, "Strength", 0.012)
-    set_input(bump, "Distance", 0.04)
-    links.new(fine.outputs["Fac"], bump.inputs["Height"])
-    links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    # micro-pore relief now lives in the baked 8K normal map, so the
+    # Blender material and the exported GLB look identical
+    normal_node = nodes.new("ShaderNodeTexImage")
+    normal_node.image = img_normal
+    normal_node.location = (-500, -350)
+    normal_node.label = "Skin normal"
+
+    normal_map = nodes.new("ShaderNodeNormalMap")
+    normal_map.location = (-260, -250)
+    set_input(normal_map, "Strength", 0.6)
+    links.new(normal_node.outputs["Color"], normal_map.inputs["Color"])
+    links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
 
     obj.data.materials.clear()
     obj.data.materials.append(mat)
@@ -569,13 +697,13 @@ def main() -> None:
     smart_uv(obj)
 
     source_mat = build_source_material(obj)
-    img_base, img_rough, base_path, rough_path = bake_textures(
+    img_base, img_rough, img_normal, base_path, rough_path, normal_path = bake_textures(
         obj, source_mat, out_dir / "textures", args.texture_size, args.bake_samples
     )
-    final_mat = build_final_material(obj, img_base, img_rough)
+    final_mat = build_final_material(obj, img_base, img_rough, img_normal)
     if source_mat.name in bpy.data.materials:
         bpy.data.materials.remove(source_mat)
-    for image in (img_base, img_rough):
+    for image in (img_base, img_rough, img_normal):
         try:
             image.pack()
         except Exception as exc:
@@ -605,7 +733,11 @@ def main() -> None:
     glb_path = out_dir / f"{args.name}.glb"
     mc.export_glb(obj, glb_path)
     outputs["glb"] = glb_path.name
-    outputs["textures"] = [f"textures/{base_path.name}", f"textures/{rough_path.name}"]
+    outputs["textures"] = [
+        f"textures/{base_path.name}",
+        f"textures/{rough_path.name}",
+        f"textures/{normal_path.name}",
+    ]
     outputs["preview"] = [f"preview/{item}" for item in rendered]
 
     report = {
@@ -616,6 +748,11 @@ def main() -> None:
             "smooth_factor": args.smooth_factor,
             "smooth_iterations": args.smooth_iterations,
             "texture_size": args.texture_size,
+            "texture_maps": {
+                "basecolor": args.texture_size,
+                "roughness": args.texture_size,
+                "normal": args.texture_size,
+            },
             "bake_samples": args.bake_samples,
             "render_samples": args.render_samples,
         },

@@ -230,6 +230,9 @@ def export_stl(obj: bpy.types.Object, filepath: Path) -> None:
 
 def export_glb(obj: bpy.types.Object, filepath: Path) -> None:
     select_only([obj], active=obj)
+    # Default image handling embeds the baked maps losslessly (PNG) at
+    # full resolution inside the GLB; do not force JPEG here, it would
+    # also recompress the roughness/normal data maps.
     bpy.ops.export_scene.gltf(
         filepath=str(filepath),
         export_format="GLB",

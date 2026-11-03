@@ -17,7 +17,7 @@ on:
       voxel_size:
         description: "Voxel size for the higher-quality sculpted surface"
         required: true
-        default: "0.14"
+        default: "0.12"
         type: string
       smooth_factor:
         description: "Gentle sculpt-smooth strength (lower keeps more original detail)"
@@ -30,9 +30,9 @@ on:
         default: "2"
         type: string
       texture_size:
-        description: "Baked skin base-colour texture size"
+        description: "Every baked skin map at this size (base colour, roughness, normal)"
         required: true
-        default: "4096"
+        default: "8192"
         type: string
       bake_samples:
         description: "Cycles samples used while baking the skin textures"
@@ -42,12 +42,12 @@ on:
       render_samples:
         description: "Cycles samples for the preview renders"
         required: true
-        default: "32"
+        default: "64"
         type: string
       render_width:
         description: "Preview render width in pixels (height is 4:3)"
         required: true
-        default: "800"
+        default: "1000"
         type: string
       commit_results:
         description: "Commit generated model files back to the selected branch"
@@ -67,17 +67,17 @@ concurrency:
 jobs:
   build-pretty:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     env:
       BLENDER_VERSION: "4.2.0"
-      VOXEL_SIZE: ${{ inputs.voxel_size || '0.14' }}
+      VOXEL_SIZE: ${{ inputs.voxel_size || '0.12' }}
       SMOOTH_FACTOR: ${{ inputs.smooth_factor || '0.25' }}
       SMOOTH_ITERATIONS: ${{ inputs.smooth_iterations || '2' }}
-      TEXTURE_SIZE: ${{ inputs.texture_size || '4096' }}
+      TEXTURE_SIZE: ${{ inputs.texture_size || '8192' }}
       BAKE_SAMPLES: ${{ inputs.bake_samples || '8' }}
-      RENDER_SAMPLES: ${{ inputs.render_samples || '32' }}
-      RENDER_WIDTH: ${{ inputs.render_width || '800' }}
+      RENDER_SAMPLES: ${{ inputs.render_samples || '64' }}
+      RENDER_WIDTH: ${{ inputs.render_width || '1000' }}
       TARGET_BRANCH: ${{ github.ref_name }}
 
     steps:
@@ -158,8 +158,8 @@ jobs:
               raise SystemExit("smooth_factor must be between 0.0 and 1.0")
           if not 0 <= smooth_iterations <= 20:
               raise SystemExit("smooth_iterations must be between 0 and 20")
-          if texture_size not in (512, 1024, 2048, 4096):
-              raise SystemExit("texture_size must be 512, 1024, 2048 or 4096")
+          if texture_size not in (512, 1024, 2048, 4096, 8192):
+              raise SystemExit("texture_size must be 512, 1024, 2048, 4096 or 8192")
           if not 1 <= bake_samples <= 128:
               raise SystemExit("bake_samples must be between 1 and 128")
           if not 1 <= render_samples <= 512:
@@ -198,10 +198,11 @@ jobs:
             --require-watertight \
             --require-single-component \
             --require-positive-volume \
-            --min-triangles 500000 \
+            --min-triangles 700000 \
             --json-out validation/Chibi_pretty.json
 
           python - <<'PY'
+          import io
           import json
           import os
           import struct
@@ -212,12 +213,16 @@ jobs:
           expected = int(os.environ["TEXTURE_SIZE"])
           base = Path("textures/skin_basecolor.png")
           rough = Path("textures/skin_roughness.png")
+          normal = Path("textures/skin_normal.png")
           with Image.open(base) as image:
               base_size = image.size
           with Image.open(rough) as image:
               rough_size = image.size
+          with Image.open(normal) as image:
+              normal_size = image.size
           assert base_size == (expected, expected), base_size
-          assert rough_size == (max(512, expected // 2), max(512, expected // 2)), rough_size
+          assert rough_size == (expected, expected), rough_size
+          assert normal_size == (expected, expected), normal_size
 
           glb_path = Path("Chibi_pretty.glb")
           data = glb_path.read_bytes()
@@ -228,11 +233,33 @@ jobs:
           gltf = json.loads(data[20 : 20 + chunk_length])
           materials = gltf.get("materials", [])
           assert len(gltf.get("meshes", [])) == 1, gltf.get("meshes")
-          assert len(gltf.get("images", [])) >= 2, gltf.get("images")
-          assert len(gltf.get("textures", [])) >= 2, gltf.get("textures")
+          assert len(gltf.get("images", [])) >= 3, gltf.get("images")
+          assert len(gltf.get("textures", [])) >= 3, gltf.get("textures")
           pbr = materials[0].get("pbrMetallicRoughness", {})
           assert "baseColorTexture" in pbr, materials
           assert "metallicRoughnessTexture" in pbr, materials
+          assert "normalTexture" in materials[0], materials
+          if len(data) >= 100_000_000:
+              print(f"WARNING: GLB is {len(data)} bytes; GitHub rejects files >= 100 MB in git")
+
+          bin_off = 20 + chunk_length
+          bin_length, bin_type = struct.unpack_from("<I4s", data, bin_off)
+          assert bin_type == b"BIN\x00", bin_type
+          bin_start = bin_off + 8
+          embedded = []
+          for image in gltf.get("images", []):
+              view = gltf["bufferViews"][image["bufferView"]]
+              start = bin_start + view.get("byteOffset", 0)
+              blob = data[start : start + view["byteLength"]]
+              with Image.open(io.BytesIO(blob)) as im:
+                  embedded.append(
+                      {
+                          "name": image.get("name"),
+                          "mime": image.get("mimeType"),
+                          "size": list(im.size),
+                      }
+                  )
+          assert all(tuple(e["size"]) == (expected, expected) for e in embedded), embedded
 
           report = {
               "glb": str(glb_path),
@@ -243,6 +270,8 @@ jobs:
               "materials": materials,
               "basecolor_size": list(base_size),
               "roughness_size": list(rough_size),
+              "normal_size": list(normal_size),
+              "embedded_images": embedded,
           }
           out = Path("validation/Chibi_pretty_glb.json")
           out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -256,7 +285,7 @@ jobs:
             echo "## Pretty textured Chibi model"
             echo
             echo "- Sculpt voxel size: \`$VOXEL_SIZE\`"
-            echo "- Skin texture: \`$TEXTURE_SIZE × $TEXTURE_SIZE\`"
+            echo "- Skin textures (base colour / roughness / normal, embedded in the model): \`$TEXTURE_SIZE × $TEXTURE_SIZE\` each"
             echo "- Preview samples: \`$RENDER_SAMPLES\`"
             echo
             echo "| File | Size |"
@@ -268,6 +297,7 @@ jobs:
               Chibi_pretty_report.json \
               textures/skin_basecolor.png \
               textures/skin_roughness.png \
+              textures/skin_normal.png \
               preview/Chibi_pretty_front.png \
               preview/Chibi_pretty_threequarter.png \
               preview/Chibi_pretty_closeup.png
@@ -296,6 +326,7 @@ jobs:
             Chibi_pretty_report.json \
             textures/skin_basecolor.png \
             textures/skin_roughness.png \
+            textures/skin_normal.png \
             preview/Chibi_pretty_front.png \
             preview/Chibi_pretty_threequarter.png \
             preview/Chibi_pretty_closeup.png \
@@ -313,6 +344,7 @@ jobs:
             Chibi_pretty_report.json
             textures/skin_basecolor.png
             textures/skin_roughness.png
+            textures/skin_normal.png
             preview/Chibi_pretty_front.png
             preview/Chibi_pretty_threequarter.png
             preview/Chibi_pretty_closeup.png
@@ -335,6 +367,7 @@ jobs:
             Chibi_pretty_report.json \
             textures/skin_basecolor.png \
             textures/skin_roughness.png \
+            textures/skin_normal.png \
             preview/Chibi_pretty_front.png \
             preview/Chibi_pretty_threequarter.png \
             preview/Chibi_pretty_closeup.png
