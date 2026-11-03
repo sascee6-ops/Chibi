@@ -2,24 +2,29 @@
   "blender_version": "4.2.0",
   "input": "Chibi_full.stl",
   "parameters": {
-    "voxel_size": 0.14,
+    "voxel_size": 0.12,
     "smooth_factor": 0.25,
     "smooth_iterations": 2,
-    "texture_size": 4096,
+    "texture_size": 8192,
+    "texture_maps": {
+      "basecolor": 8192,
+      "roughness": 8192,
+      "normal": 8192
+    },
     "bake_samples": 8,
-    "render_samples": 32
+    "render_samples": 64
   },
   "painted_vertex_counts": {
-    "cheek_left": 526,
-    "cheek_right": 531,
-    "eyelids": 65,
-    "nose": 90,
-    "lips": 39,
-    "hands": 3924,
+    "cheek_left": 715,
+    "cheek_right": 722,
+    "eyelids": 96,
+    "nose": 124,
+    "lips": 56,
+    "hands": 5294,
     "knees": 0,
-    "feet": 11242,
-    "freckles": 780,
-    "fingertips": 5400
+    "feet": 15444,
+    "freckles": 1060,
+    "fingertips": 7274
   },
   "input_geometry": {
     "name": "Chibi_pretty",
@@ -44,44 +49,44 @@
   },
   "sculpted_geometry": {
     "name": "Chibi_pretty",
-    "vertices": 308010,
-    "polygons": 308008,
-    "triangles": 616016,
+    "vertices": 418828,
+    "polygons": 418826,
+    "triangles": 837652,
     "bbox_min": [
-      -23.307,
-      -8.9255,
-      -0.2311
+      -23.3114,
+      -8.9249,
+      -0.232
     ],
     "bbox_max": [
-      23.307,
-      10.1681,
-      76.5467
+      23.3114,
+      10.1688,
+      76.5468
     ],
     "dimensions": [
-      46.614,
-      19.0936,
-      76.7779
+      46.6228,
+      19.0937,
+      76.7788
     ]
   },
   "final_geometry": {
     "name": "Chibi_pretty",
-    "vertices": 308010,
-    "polygons": 308008,
-    "triangles": 616016,
+    "vertices": 418828,
+    "polygons": 418826,
+    "triangles": 837652,
     "bbox_min": [
-      -23.307,
-      -8.9255,
-      -0.2311
+      -23.3114,
+      -8.9249,
+      -0.232
     ],
     "bbox_max": [
-      23.307,
-      10.1681,
-      76.5467
+      23.3114,
+      10.1688,
+      76.5468
     ],
     "dimensions": [
-      46.614,
-      19.0936,
-      76.7779
+      46.6228,
+      19.0937,
+      76.7788
     ]
   },
   "outputs": {
@@ -90,7 +95,8 @@
     "glb": "Chibi_pretty.glb",
     "textures": [
       "textures/skin_basecolor.png",
-      "textures/skin_roughness.png"
+      "textures/skin_roughness.png",
+      "textures/skin_normal.png"
     ],
     "preview": [
       "preview/Chibi_pretty_front.png",
