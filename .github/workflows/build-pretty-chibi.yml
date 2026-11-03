@@ -359,6 +359,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Report generated file sizes
+        if: always()
+        run: |
+          for f in Chibi_pretty.blend Chibi_pretty.glb Chibi_pretty.stl textures/skin_basecolor.png textures/skin_roughness.png textures/skin_normal.png preview/Chibi_pretty_front.png preview/Chibi_pretty_threequarter.png preview/Chibi_pretty_closeup.png; do
+            echo "::notice title=size $f::$(stat -c%s \"$f\" 2>/dev/null || echo missing) bytes"
+          done
+
       - name: Commit generated files to the selected branch
         if: ${{ github.event_name == 'push' || inputs.commit_results }}
         run: |

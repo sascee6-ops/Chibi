@@ -50,6 +50,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import merge_chibi as mc  # noqa: E402
+import png_writer  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
@@ -382,6 +383,22 @@ def _height_to_normal(height_image, normal_image, size: int) -> None:
     normal_image.update()
 
 
+def _write_image_png(image, path: Path) -> None:
+    """Write a Blender image as a maximally compressed RGB8 PNG master."""
+    width, height = image.size
+    pixels = np.empty(width * height * 4, dtype=np.float32)
+    image.pixels.foreach_get(pixels)
+    rgba = pixels.reshape(height, width, 4)
+    rgb = np.clip(np.rint(rgba[::-1, :, :3] * 255.0), 0, 255).astype(np.uint8)
+    del pixels, rgba
+    png_writer.write_png_rgb8(path, np.ascontiguousarray(rgb))
+    del rgb
+    image.filepath_raw = str(path)
+    image.file_format = "PNG"
+    image.reload()  # pack()/export embed the compact file bytes
+    print(f"Saved {path} ({path.stat().st_size} bytes)")
+
+
 def bake_textures(obj, mat, tex_dir: Path, size: int, samples: int):
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
@@ -434,10 +451,7 @@ def bake_textures(obj, mat, tex_dir: Path, size: int, samples: int):
         if out_name is None:
             return None
         path = tex_dir / out_name
-        image.filepath_raw = str(path)
-        image.file_format = "PNG"
-        image.save()
-        print(f"Saved {path} ({path.stat().st_size} bytes)")
+        _write_image_png(image, path)
         return path
 
     scene.render.bake.use_pass_direct = False
@@ -486,10 +500,7 @@ def bake_textures(obj, mat, tex_dir: Path, size: int, samples: int):
     _height_to_normal(img_height, img_normal, size)
     bpy.data.images.remove(img_height)
     normal_path = tex_dir / "skin_normal.png"
-    img_normal.filepath_raw = str(normal_path)
-    img_normal.file_format = "PNG"
-    img_normal.save()
-    print(f"Saved {normal_path} ({normal_path.stat().st_size} bytes)")
+    _write_image_png(img_normal, normal_path)
     return img_base, img_rough, img_normal, base_path, rough_path, normal_path
 
 
