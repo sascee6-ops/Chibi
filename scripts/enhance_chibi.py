@@ -360,9 +360,9 @@ def _height_to_normal(height_image, normal_image, size: int) -> None:
     del height
     # the noise is fractal, so per-texel gradients barely shrink with
     # resolution -- a constant strength keeps the relief consistent
-    strength = 3.0
-    nx = _soften(_soften(-grad_x * strength))
-    ny = _soften(_soften(-grad_y * strength))
+    strength = 2.5
+    nx = _soften(_soften(_soften(-grad_x * strength)))
+    ny = _soften(_soften(_soften(-grad_y * strength)))
     del grad_x, grad_y
     # perfectly flat background outside the baked area (keeps the PNG
     # small); the softened coverage mask fills the odd mid-grey texel

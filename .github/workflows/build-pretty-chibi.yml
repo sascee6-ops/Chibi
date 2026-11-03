@@ -189,6 +189,12 @@ jobs:
             --render-samples "$RENDER_SAMPLES" \
             --render-width "$RENDER_WIDTH"
 
+      - name: Recompress GLB base-colour map to 8K JPEG
+        run: |
+          set -euo pipefail
+          python scripts/repack_glb_basecolor.py Chibi_pretty.glb --quality 92
+          ls -lh Chibi_pretty.blend Chibi_pretty.stl Chibi_pretty.glb textures/*.png
+
       - name: Validate geometry, textures and GLB
         run: |
           set -euo pipefail
