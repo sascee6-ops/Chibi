@@ -12,19 +12,32 @@
       "normal": 8192
     },
     "bake_samples": 8,
-    "render_samples": 64
+    "render_samples": 96
   },
   "painted_vertex_counts": {
-    "cheek_left": 715,
-    "cheek_right": 722,
-    "eyelids": 96,
-    "nose": 124,
+    "top_light": 111541,
+    "cool_shade": 77980,
+    "face_glow": 2203,
+    "forehead_glow": 953,
+    "cheek_halo": 1736,
+    "cheek_left": 740,
+    "cheek_right": 748,
+    "eyelids": 165,
+    "nose": 133,
     "lips": 56,
+    "beauty_mark": 1,
+    "rough_face": 4364,
+    "rough_cheeks": 1297,
+    "rough_eyelids": 277,
+    "rough_nose": 209,
+    "rough_lips": 107,
     "hands": 5294,
     "knees": 0,
     "feet": 15444,
-    "freckles": 1060,
-    "fingertips": 7274
+    "rough_hands": 6752,
+    "freckles": 2054,
+    "fingertips": 7274,
+    "toes": 1628
   },
   "input_geometry": {
     "name": "Chibi_pretty",

@@ -42,7 +42,7 @@ on:
       render_samples:
         description: "Cycles samples for the preview renders"
         required: true
-        default: "64"
+        default: "96"
         type: string
       render_width:
         description: "Preview render width in pixels (height is 4:3)"
@@ -76,7 +76,7 @@ jobs:
       SMOOTH_ITERATIONS: ${{ inputs.smooth_iterations || '2' }}
       TEXTURE_SIZE: ${{ inputs.texture_size || '8192' }}
       BAKE_SAMPLES: ${{ inputs.bake_samples || '8' }}
-      RENDER_SAMPLES: ${{ inputs.render_samples || '64' }}
+      RENDER_SAMPLES: ${{ inputs.render_samples || '96' }}
       RENDER_WIDTH: ${{ inputs.render_width || '1000' }}
       TARGET_BRANCH: ${{ github.ref_name }}
 
