@@ -9,7 +9,8 @@ on:
     paths:
       - "body base.blend"
       - "Chibi_head.stl"
-      - "scripts/**"
+      - "scripts/merge_chibi.py"
+      - "scripts/render_stl_preview.py"
       - ".github/workflows/build-chibi.yml"
   workflow_dispatch:
     inputs:
@@ -109,6 +110,12 @@ jobs:
       - name: Build the unified model in Blender
         run: |
           set -euo pipefail
+          if [ ! -f "body base.blend" ] || [ ! -f "Chibi_head.stl" ]; then
+            echo "Separate body base.blend and Chibi_head.stl are not present in this branch."
+            echo "The unified model Chibi_full.* is already maintained directly in the repository."
+            exit 0
+          fi
+
           python - <<'PY'
           import os
 
