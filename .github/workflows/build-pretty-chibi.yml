@@ -10,6 +10,8 @@ on:
       - "Chibi_full.stl"
       - "scripts/enhance_chibi.py"
       - "scripts/merge_chibi.py"
+      - "scripts/png_writer.py"
+      - "scripts/repack_glb_basecolor.py"
       - "scripts/validate_stl.py"
       - ".github/workflows/build-pretty-chibi.yml"
   workflow_dispatch:
