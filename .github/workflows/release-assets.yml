@@ -44,17 +44,22 @@ jobs:
           echo "Downloading artifact from run $RUN_ID..."
           mkdir -p package
           gh run download "$RUN_ID" -D package
-          ls -lh package/
+          find package -maxdepth 3 -ls
 
       - name: Build pure lossless 8K deliverables
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, struct, zipfile
+          import json, shutil, struct, zipfile
           from pathlib import Path
 
-          pkg = Path("package")
-          glb_path = pkg / "Chibi_pretty.glb"
+          glb_matches = list(Path("package").rglob("Chibi_pretty.glb"))
+          if not glb_matches:
+              raise SystemExit("Chibi_pretty.glb not found in downloaded package")
+          glb_path = glb_matches[0]
+          pkg = glb_path.parent
+          print(f"Found model root at: {pkg}")
+
           data = glb_path.read_bytes()
           magic, version, total = struct.unpack_from("<4sII", data, 0)
           json_len, _ = struct.unpack_from("<I4s", data, 12)
@@ -65,7 +70,8 @@ jobs:
           old_bin = data[bin_start : bin_start + bin_len]
 
           # Swap in the uncompressed 8K PNG master for baseColor
-          png_bytes = (pkg / "textures/skin_basecolor.png").read_bytes()
+          basecolor_png = next(pkg.rglob("skin_basecolor.png"))
+          png_bytes = basecolor_png.read_bytes()
           tex_idx = gltf["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"]["index"]
           img_idx = gltf["textures"][tex_idx]["source"]
           image = gltf["images"][img_idx]
@@ -100,21 +106,29 @@ jobs:
           print(f"Created {out_glb.name}: {len(out)} bytes")
 
           # Textures ZIP
+          tex_dir = next(pkg.rglob("skin_basecolor.png")).parent
           with zipfile.ZipFile("Chibi_pretty_8K_Textures_Lossless.zip", "w", zipfile.ZIP_DEFLATED) as z:
-              for p in (pkg / "textures").glob("*.png"):
+              for p in tex_dir.glob("*.png"):
                   z.write(p, arcname=p.name)
                   print("Added texture:", p.name)
 
           # Previews ZIP
-          with zipfile.ZipFile("Chibi_pretty_Previews.zip", "w", zipfile.ZIP_DEFLATED) as z:
-              for p in (pkg / "preview").glob("*.png"):
-                  z.write(p, arcname=p.name)
-                  print("Added preview:", p.name)
+          prev_matches = list(pkg.rglob("Chibi_pretty_front.png"))
+          if prev_matches:
+              prev_dir = prev_matches[0].parent
+              with zipfile.ZipFile("Chibi_pretty_Previews.zip", "w", zipfile.ZIP_DEFLATED) as z:
+                  for p in prev_dir.glob("*.png"):
+                      z.write(p, arcname=p.name)
+                      print("Added preview:", p.name)
+
+          # Copy blend, stl, report
+          shutil.copy(next(pkg.rglob("Chibi_pretty.blend")), "Chibi_pretty.blend")
+          shutil.copy(next(pkg.rglob("Chibi_pretty.stl")), "Chibi_pretty.stl")
+          report_matches = list(pkg.rglob("Chibi_pretty_report.json"))
+          if report_matches:
+              shutil.copy(report_matches[0], "Chibi_pretty_report.json")
           PY
 
-          cp package/Chibi_pretty.blend .
-          cp package/Chibi_pretty.stl .
-          cp package/Chibi_pretty_report.json .
           ls -lh Chibi_pretty*
 
       - name: Upload assets to GitHub release
