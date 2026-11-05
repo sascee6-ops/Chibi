@@ -4,3 +4,9 @@ __pycache__/
 *.blend2
 .validation/
 validation/
+
+# Release deliverables (distributed via GitHub Releases v0.0.0.0.0.0-s0)
+Chibi_pretty.blend
+Chibi_pretty.glb
+Chibi_pretty.stl
+textures/*.png
