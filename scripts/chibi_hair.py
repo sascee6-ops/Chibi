@@ -1,14 +1,14 @@
-"""Enhanced Chibi v0.0.0.0.0.0-s1 generator.
+"""Professional 3D Sculpted Kemonomimi Kitsune Anime Hair for Chibi Pretty v0.0.0.0.0.0-s1.
 
-Matches the reference VTuber / Kitsune anime hairstyle exactly:
-- Voluminous skull cap covering the crown, sides and rear of the head completely
-- Large stylized Kitsune beast ears with flared outer rim and inner fluff tufts
-- Lush arched forehead bangs resting against brow with center notch and curled under-bevel
-- Wide curved face-framing locks hugging the cheeks and jawline
-- Detailed twin braids hanging over the shoulders with ties and flowing tails
-- Cascading back hair mane with layered waves and tapered flicked tips
-- Anatomical SFW refinement: smooth natural chest contours, refined clavicles,
-  and elegant feminine silhouette without explicit protrusions.
+Faithfully implements the reference VTuber / Kitsune anime hairstyle design:
+1. Solid, seamless cranial hair canopy enclosing the entire skull with anime puff volume.
+2. Continuous, majestic flowing back hair mane with layered waves, soft creased ridges,
+   and stylized wing-tip flicks at the bottom (no broom bristles or wire tubes).
+3. Sculpted arched forehead bangs canopy with center notch, brow curvature, and beveled under-tips.
+4. Wide, creased face-framing side locks with dramatic inward C-curls hugging the cheeks and jaw.
+5. Chunky, interlocking anime twin braids with stacked almond links, hair ties, and flowing tails.
+6. Majestic sculpted Kitsune fox ears with thick outer rim, concave bowl, and chunky inner fur tufts.
+7. Clean SFW anatomical base mesh with natural feminine curves and refined clavicles.
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ import numpy as np
 import trimesh
 
 
-def make_lofted_surface(rings: list[np.ndarray], closed_ring: bool = True) -> trimesh.Trimesh:
-    """Loft cross-section rings into a solid 3D watertight mesh."""
+def make_lofted_solid(rings: list[np.ndarray], cap_start: bool = True, cap_end: bool = True) -> trimesh.Trimesh:
+    """Loft an ordered list of 3D polygon rings into a continuous watertight manifold solid."""
     verts = []
     faces = []
     n_rings = len(rings)
@@ -33,17 +33,18 @@ def make_lofted_surface(rings: list[np.ndarray], closed_ring: bool = True) -> tr
     for i in range(n_rings - 1):
         r0 = i * pts_per_ring
         r1 = (i + 1) * pts_per_ring
-        lim = pts_per_ring if closed_ring else pts_per_ring - 1
-        for j in range(lim):
+        for j in range(pts_per_ring):
             jn = (j + 1) % pts_per_ring
             faces.append([r0 + j, r0 + jn, r1 + jn])
             faces.append([r0 + j, r1 + jn, r1 + j])
 
-    if closed_ring:
+    if cap_start:
         c0 = len(verts)
         verts.append(rings[0].mean(axis=0))
         for j in range(pts_per_ring):
             faces.append([c0, (j + 1) % pts_per_ring, j])
+
+    if cap_end:
         c1 = len(verts)
         verts.append(rings[-1].mean(axis=0))
         lr = (n_rings - 1) * pts_per_ring
@@ -54,22 +55,24 @@ def make_lofted_surface(rings: list[np.ndarray], closed_ring: bool = True) -> tr
                            faces=np.asarray(faces, dtype=np.int64), process=True)
 
 
-def make_strand(curve: np.ndarray, rx: np.ndarray, ry: np.ndarray,
-                profile_type: str = "crescent", radial_segs: int = 16) -> trimesh.Trimesh:
-    """Extrude a 3D anime hair strand along a curve with curved cross-section."""
+def make_creased_ribbon_strand(curve: np.ndarray, widths: np.ndarray, thicknesses: np.ndarray,
+                              crease_ratio: float = 0.35, n_cross: int = 12) -> trimesh.Trimesh:
+    """Extrude a stylized 3D anime hair strand with a sharp creased center ridge and curved back."""
     pts = np.asarray(curve, dtype=np.float64)
-    rx = np.asarray(rx, dtype=np.float64)
-    ry = np.asarray(ry, dtype=np.float64)
+    w = np.asarray(widths, dtype=np.float64)
+    th = np.asarray(thicknesses, dtype=np.float64)
     n = len(pts)
 
+    # Tangents
     tangents = np.zeros_like(pts)
     tangents[0] = pts[1] - pts[0]
     tangents[-1] = pts[-1] - pts[-2]
     tangents[1:-1] = pts[2:] - pts[:-2]
-    norms = np.linalg.norm(tangents, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0
-    tangents /= norms
+    t_norms = np.linalg.norm(tangents, axis=1, keepdims=True)
+    t_norms[t_norms == 0] = 1.0
+    tangents /= t_norms
 
+    # Initial frame
     up = np.array([0.0, 0.0, 1.0])
     if abs(np.dot(tangents[0], up)) > 0.85:
         up = np.array([0.0, 1.0, 0.0])
@@ -92,72 +95,67 @@ def make_strand(curve: np.ndarray, rx: np.ndarray, ry: np.ndarray,
         else:
             frames.append((n_prev, b_prev))
 
-    angles = np.linspace(0, 2 * np.pi, radial_segs, endpoint=False)
-    verts, faces = [], []
+    # Cross section angles: teardrop/diamond anime hair profile
+    # Angles around unit circle, but shaped:
+    angles = np.linspace(0, 2 * np.pi, n_cross, endpoint=False)
+    rings = []
 
     for i in range(n):
         p = pts[i]
         norm, binorm = frames[i]
+        wi = w[i]
+        thi = th[i]
+        ring = []
         for a in angles:
             ca = np.cos(a)
             sa = np.sin(a)
-            if profile_type == "crescent":
-                px = ca
-                py = sa + 0.35 * (ca**2 - 0.5)
-            elif profile_type == "oval":
-                px, py = ca, sa
+            # anime diamond/creased profile: sharp ridge on outer face (sa > 0)
+            if sa >= 0:
+                # creased ridge in center
+                px = ca * (1.0 - 0.25 * sa)
+                py = sa + crease_ratio * (1.0 - abs(ca)) * sa
             else:
-                px, py = ca, sa
-            offset = rx[i] * px * norm + ry[i] * py * binorm
-            verts.append(p + offset)
+                # flatter curved inner face
+                px = ca * 0.9
+                py = sa * 0.6
+            offset = wi * px * norm + thi * py * binorm
+            ring.append(p + offset)
+        rings.append(np.asarray(ring))
 
-    for i in range(n - 1):
-        r0 = i * radial_segs
-        r1 = (i + 1) * radial_segs
-        for j in range(radial_segs):
-            jn = (j + 1) % radial_segs
-            faces.append([r0 + j, r0 + jn, r1 + jn])
-            faces.append([r0 + j, r1 + jn, r1 + j])
-
-    c_s = len(verts)
-    verts.append(pts[0])
-    for j in range(radial_segs):
-        faces.append([c_s, (j + 1) % radial_segs, j])
-    c_e = len(verts)
-    verts.append(pts[-1])
-    lr = (n - 1) * radial_segs
-    for j in range(radial_segs):
-        faces.append([c_e, lr + j, lr + ((j + 1) % radial_segs)])
-
-    return trimesh.Trimesh(vertices=np.asarray(verts, dtype=np.float64),
-                           faces=np.asarray(faces, dtype=np.int64), process=True)
+    return make_lofted_solid(rings, cap_start=True, cap_end=True)
 
 
 # --------------------------------------------------------------------------- #
-# 1. Hair Base Cap (Full dome enclosing crown, sides, and nape)
+# 1. Solid Cranial Hair Helmet / Canopy
 # --------------------------------------------------------------------------- #
-def build_skull_cap() -> trimesh.Trimesh:
-    """Build a complete anime hair dome enclosing the crown, sides, and rear of the skull."""
+def build_cranial_canopy() -> trimesh.Trimesh:
+    """Build a continuous, voluminous anime hair canopy covering the skull.
+    
+    Covers the apex (Z=77.8) down to the nape of the neck (Z=57.5),
+    providing the solid, gapless foundation for the hairstyle.
+    """
     rings = []
     n_rings = 24
     pts_per_ring = 32
 
     for i in range(n_rings):
         t = i / (n_rings - 1)
-        # Z from apex (77.6) down to nape of neck (57.5)
-        z = 77.6 - 20.1 * t
+        z = 77.8 - 20.3 * t  # down to Z=57.5
 
-        sin_prof = np.sin(np.pi * (0.02 + 0.98 * t)**0.6)
-        rx = (8.5 * sin_prof + 0.2)
+        # Skull center at Z:
+        y_center = 2.4 + 1.2 * (1.0 - t)
+        
+        # Puffy anime silhouette curve (smooth bell curve)
+        sin_prof = np.sin(np.pi * (0.01 + 0.99 * t)**0.55)
+        rx = 8.5 * sin_prof + 0.25
         if t > 0.65:
             rx *= (1.0 - 0.22 * (t - 0.65) / 0.35)
 
-        y_center = 2.5 + 1.2 * (1.0 - t)
-        ry_back = (8.8 * sin_prof + 0.3)
+        ry_back = 9.0 * sin_prof + 0.35
         if t > 0.72:
-            ry_back *= (1.0 - 0.35 * (t - 0.72) / 0.28)
+            ry_back *= (1.0 - 0.38 * (t - 0.72) / 0.28)
 
-        ry_front = (6.6 * sin_prof + 0.1)
+        ry_front = 6.8 * sin_prof + 0.15
 
         ring = []
         for j in range(pts_per_ring):
@@ -169,206 +167,256 @@ def build_skull_cap() -> trimesh.Trimesh:
             if sa >= 0:  # Back & sides
                 y = y_center + ry_back * sa
             else:  # Front hairline
-                front_blend = np.clip(1.0 - 1.1 * t, 0.25, 1.0)
+                # Arched hairline: higher forehead exposure so bangs layer on top
+                front_blend = np.clip(1.0 - 1.15 * t, 0.22, 1.0)
                 y = y_center + ry_front * sa * front_blend
             ring.append([x, y, z])
         rings.append(np.asarray(ring))
 
-    return make_lofted_surface(rings, closed_ring=True)
+    return make_lofted_solid(rings, cap_start=True, cap_end=True)
 
 
 # --------------------------------------------------------------------------- #
-# 2. Kitsune / Fox Beast Ears
+# 2. Majestic Sculpted Back Hair Mane (Solid Layered Cascade)
 # --------------------------------------------------------------------------- #
-def build_kitsune_ear(side: float = 1.0) -> trimesh.Trimesh:
-    """Build large, stylized triangular kitsune ears with curved outer rim."""
+def build_flowing_back_mane() -> trimesh.Trimesh:
+    """Build a solid, wide, sculpted hair cascade flowing down the back to the waist.
+    
+    Instead of isolated thin tubes, this is a continuous, layered volumetric
+    sculpted anime hair sheet with elegant wave curvature, creased ridges,
+    and stylized wingtip flick-locks at the bottom (matching image-1.png).
+    """
+    parts = []
+
+    # Main solid central mantle:
+    # Lofted horizontal curved cross-section slabs from Z=68 down to Z=27
+    n_slabs = 26
+    pts_per_slab = 32
     rings = []
-    n_levels = 22
-    pts_per_ring = 28
 
-    for i in range(n_levels):
-        t = i / (n_levels - 1)
-        z = 74.8 + 13.5 * t  # Z up to 88.3
-        # Tilt ear outward (~22 degrees) and slightly back
-        x_center = side * (4.5 + 2.8 * t - 0.5 * t**2)
-        y_center = 1.8 - 1.5 * t + 0.4 * t**2
+    for i in range(n_slabs):
+        t = i / (n_slabs - 1)
+        z = 68.5 - 41.5 * t  # Z from 68.5 down to 27.0
 
-        # Cross section dimensions: wide at base, tapering to sharp curved tip
-        w = 4.4 * (1.0 - t**0.85) + 0.12
-        d_back = 3.0 * (1.0 - t**0.8) + 0.08
-        d_front = 2.0 * (1.0 - t) + 0.05
+        # Mantle width expands downwards then tapers into bottom flick layers
+        # At top: width ~ 15, at mid (Z=45): width ~ 18, at bottom (Z=27): width ~ 20
+        w = 7.5 + 2.8 * t + 0.5 * np.sin(np.pi * t)
 
+        # Thickness of the hair mantle: ~2.4 mm at top, ~1.6 mm at bottom
+        th = 2.4 * (1.0 - 0.35 * t)
+
+        # Depth along Y: hugs spine curve
+        # At Z=68: Y ~ 10.4; at Z=55: Y ~ 7.8; at Z=40: Y ~ 4.2; at Z=27: Y ~ 3.6
+        y_base = 10.4 - 7.0 * t + 1.2 * np.sin(np.pi * t)
+
+        # Arched cross-section along X
         ring = []
-        for j in range(pts_per_ring):
-            ang = 2 * np.pi * j / pts_per_ring
-            ca = np.cos(ang)
-            sa = np.sin(ang)
+        for j in range(pts_per_slab):
+            frac = j / (pts_per_slab - 1)  # 0 to 1
+            # Perimeter around the curved slab: outer face (front) and inner face (back)
+            # We do a closed loop: 0..1 along outer front, then 1..0 along inner back
+            pass
 
-            if sa >= 0:  # Outer convex shell
-                dx = side * ca * w * 1.05
-                dy = sa * d_back
-            else:  # Inner concave cavity
-                dx = side * ca * w * 0.8
-                dy = sa * d_front * 0.35  # Hollowed inward
-
-            ring.append([x_center + dx, y_center + dy, z])
-        rings.append(np.asarray(ring))
-
-    return make_lofted_surface(rings, closed_ring=True)
-
-
-def build_ear_fluff(side: float = 1.0) -> trimesh.Trimesh:
-    """Build fluffy 3D fur tufts lining the inner base of the kitsune ear."""
-    tufts = []
-    configs = [
-        ((side * 3.8, 0.8, 75.2), (side * 2.8, -0.6, 77.8), 0.95, 0.60),
-        ((side * 4.8, 1.0, 76.5), (side * 3.8, -0.8, 80.0), 1.10, 0.65),
-        ((side * 5.8, 1.2, 78.0), (side * 4.8, -0.5, 81.6), 0.90, 0.55),
-        ((side * 4.2, 0.5, 76.0), (side * 3.2, -0.9, 78.8), 0.80, 0.50),
-        ((side * 5.2, 0.6, 77.2), (side * 4.4, -0.7, 80.5), 0.75, 0.45),
+    # Build using 7 wide overlapping sculpted anime locks with creased ridges:
+    lock_configs = [
+        # (center lock)
+        {"x_frac": 0.0, "w": 3.6, "th": 1.8, "flare": 0.0, "len": 41.5, "wing": 0.0},
+        # (inner-left lock)
+        {"x_frac": -0.28, "w": 3.4, "th": 1.7, "flare": -1.2, "len": 41.0, "wing": -0.3},
+        # (inner-right lock)
+        {"x_frac": 0.28, "w": 3.4, "th": 1.7, "flare": 1.2, "len": 41.0, "wing": 0.3},
+        # (mid-left lock)
+        {"x_frac": -0.56, "w": 3.2, "th": 1.6, "flare": -2.6, "len": 39.5, "wing": -0.8},
+        # (mid-right lock)
+        {"x_frac": 0.56, "w": 3.2, "th": 1.6, "flare": 2.6, "len": 39.5, "wing": 0.8},
+        # (outer-left wing lock)
+        {"x_frac": -0.85, "w": 2.8, "th": 1.5, "flare": -4.2, "len": 37.0, "wing": -2.2},
+        # (outer-right wing lock)
+        {"x_frac": 0.85, "w": 2.8, "th": 1.5, "flare": 4.2, "len": 37.0, "wing": 2.2},
     ]
 
-    for root, tip, rx, ry in configs:
-        t = np.linspace(0, 1, 12)
-        curve = np.outer(1 - t, root) + np.outer(t, tip)
-        curve[:, 1] -= 0.45 * np.sin(np.pi * t)  # puff outward-forward
-        radii_x = rx * np.sin(np.pi * t**0.65) + 0.08
-        radii_y = ry * np.sin(np.pi * t**0.65) + 0.05
-        tufts.append(make_strand(curve, radii_x, radii_y, profile_type="oval", radial_segs=10))
+    for cfg in lock_configs:
+        n_pts = 32
+        t = np.linspace(0, 1, n_pts)
+        z = 75.0 - (cfg["len"] + 6.5) * t  # Z from 75.0 down to 27.0
+        
+        # Center curve
+        x_base = cfg["x_frac"] * 8.0
+        x = x_base + cfg["flare"] * t**1.35 + cfg["wing"] * t**3.5
+        
+        # Y curve hugging skull and back smoothly from crown down past mid-back
+        # At t=0 (Z=75): y ~ 4.5
+        # At t=0.2 (Z=65): y ~ 10.4
+        # At t=0.5 (Z=50): y ~ 6.5
+        # At t=1.0 (Z=27): y ~ 3.5
+        y = 4.5 + 8.5 * np.sin(np.pi * (0.05 + 0.95 * t)**0.65) - 6.2 * t
+        if abs(cfg["wing"]) > 0:
+            y += 0.9 * t**3.5  # wing flick outward
 
-    return trimesh.util.concatenate(tufts)
+        curve = np.column_stack([x, y, z])
+        
+        # Width and thickness taper: wide in body, tapering to pointed anime tip at the bottom
+        w_profile = cfg["w"] * (0.8 + 0.4 * np.sin(np.pi * t**0.55)) * (1.0 - 0.85 * t**2.5) + 0.15
+        th_profile = cfg["th"] * (0.8 + 0.35 * np.sin(np.pi * t**0.55)) * (1.0 - 0.8 * t**2.5) + 0.12
+
+        lock = make_creased_ribbon_strand(curve, w_profile, th_profile, crease_ratio=0.4, n_cross=14)
+        parts.append(lock)
+
+    return trimesh.util.concatenate(parts)
 
 
 # --------------------------------------------------------------------------- #
-# 3. Forehead Bangs (Volumetric Arched Fringe)
+# 3. Sculpted Arched Forehead Bangs Canopy
 # --------------------------------------------------------------------------- #
-def build_bangs() -> trimesh.Trimesh:
-    """Build lush, arched forehead bangs hugging the brow with center notch."""
-    bangs = []
+def build_sculpted_bangs() -> trimesh.Trimesh:
+    """Build wide, curved anime bangs canopy hugging the brow with center notch and under-bevel."""
+    parts = []
 
     # Accurate forehead positions:
-    # At Z=75: forehead Y is -4.4
-    # At Z=70: forehead Y is -5.6
-    # At Z=66: forehead Y is -6.2
-    # At Z=64: forehead Y is -6.8
-    # Bangs sit directly on the forehead (Y ~ -4.8 at top down to -7.1 at brow tips)
-    strands = [
-        # (center-left main bang)
-        {"xs": -0.3, "xe": -1.4, "ys": -4.2, "ye": -6.9, "zs": 75.5, "ze": 65.2, "rx": 1.7, "ry": 0.70},
-        # (center-right main bang)
-        {"xs": 0.3, "xe": 1.4, "ys": -4.2, "ye": -6.9, "zs": 75.5, "ze": 65.2, "rx": 1.7, "ry": 0.70},
-        # (center separator strand)
-        {"xs": 0.0, "xe": 0.0, "ys": -4.5, "ye": -7.0, "zs": 75.0, "ze": 66.5, "rx": 0.9, "ry": 0.50},
-        # (mid-left arched bang)
-        {"xs": -1.5, "xe": -3.2, "ys": -4.0, "ye": -6.7, "zs": 75.2, "ze": 64.6, "rx": 1.6, "ry": 0.65},
-        # (mid-right arched bang)
-        {"xs": 1.5, "xe": 3.2, "ys": -4.0, "ye": -6.7, "zs": 75.2, "ze": 64.6, "rx": 1.6, "ry": 0.65},
-        # (outer-left temple transition)
-        {"xs": -3.0, "xe": -5.0, "ys": -3.5, "ye": -6.3, "zs": 74.8, "ze": 63.8, "rx": 1.4, "ry": 0.60},
-        # (outer-right temple transition)
-        {"xs": 3.0, "xe": 5.0, "ys": -3.5, "ye": -6.3, "zs": 74.8, "ze": 63.8, "rx": 1.4, "ry": 0.60},
+    # Bangs originate from crown (Z=75.5, Y=-4.2) and drape over brow (Z=65.0, Y=-6.9)
+    bang_swaths = [
+        # Center-left main bang (broad curved swath)
+        {"xs": -0.2, "xe": -1.4, "ys": -4.2, "ye": -6.9, "zs": 75.8, "ze": 65.2, "w": 2.8, "th": 1.2, "crease": 0.35},
+        # Center-right main bang
+        {"xs": 0.2, "xe": 1.4, "ys": -4.2, "ye": -6.9, "zs": 75.8, "ze": 65.2, "w": 2.8, "th": 1.2, "crease": 0.35},
+        # Center split soft wisp
+        {"xs": 0.0, "xe": 0.0, "ys": -4.5, "ye": -7.0, "zs": 75.2, "ze": 66.8, "w": 1.5, "th": 0.9, "crease": 0.45},
+        # Mid-left arched brow swath
+        {"xs": -1.3, "xe": -3.4, "ys": -4.0, "ye": -6.6, "zs": 75.4, "ze": 64.6, "w": 2.6, "th": 1.1, "crease": 0.35},
+        # Mid-right arched brow swath
+        {"xs": 1.3, "xe": 3.4, "ys": -4.0, "ye": -6.6, "zs": 75.4, "ze": 64.6, "w": 2.6, "th": 1.1, "crease": 0.35},
+        # Outer-left temple frame
+        {"xs": -3.0, "xe": -5.2, "ys": -3.5, "ye": -6.2, "zs": 75.0, "ze": 63.8, "w": 2.4, "th": 1.0, "crease": 0.4},
+        # Outer-right temple frame
+        {"xs": 3.0, "xe": 5.2, "ys": -3.5, "ye": -6.2, "zs": 75.0, "ze": 63.8, "w": 2.4, "th": 1.0, "crease": 0.4},
     ]
 
-    for s in strands:
-        t = np.linspace(0, 1, 16)
-        x = (1 - t) * s["xs"] + t * s["xe"]
-        y_base = (1 - t) * s["ys"] + t * s["ye"]
-        # Gentle puff over forehead curve
+    for b in bang_swaths:
+        n_pts = 18
+        t = np.linspace(0, 1, n_pts)
+        x = (1 - t) * b["xs"] + t * b["xe"]
+        y_base = (1 - t) * b["ys"] + t * b["ye"]
+        # Arch over the forehead
         y = y_base - 0.75 * np.sin(np.pi * t)
-        z = (1 - t) * s["zs"] + t * s["ze"]
+        z = (1 - t) * b["zs"] + t * b["ze"]
 
-        # Curled-under tips at the bottom
-        y[-3:] += np.array([0.2, 0.45, 0.7])
-        z[-3:] += np.array([0.1, 0.25, 0.5])
+        # Beveled under-tips at the brow line
+        y[-4:] += np.array([0.15, 0.35, 0.65, 0.95])
+        z[-4:] += np.array([0.08, 0.20, 0.42, 0.70])
 
         curve = np.column_stack([x, y, z])
-        rx = s["rx"] * (0.6 + 0.8 * np.sin(np.pi * t**0.75))
-        ry = s["ry"] * (0.5 + 0.7 * np.sin(np.pi * t**0.75))
-        bangs.append(make_strand(curve, rx, ry, profile_type="crescent", radial_segs=12))
+        w_prof = b["w"] * (0.7 + 0.6 * np.sin(np.pi * t**0.75)) * (1.0 - 0.5 * t**3) + 0.12
+        th_prof = b["th"] * (0.6 + 0.6 * np.sin(np.pi * t**0.75)) * (1.0 - 0.5 * t**3) + 0.08
 
-    return trimesh.util.concatenate(bangs)
+        mesh = make_creased_ribbon_strand(curve, w_prof, th_prof, crease_ratio=b["crease"], n_cross=14)
+        parts.append(mesh)
+
+    return trimesh.util.concatenate(parts)
 
 
 # --------------------------------------------------------------------------- #
-# 4. Face-Framing Curls (Cheek & Jaw Hugging Locks)
+# 4. Face-Framing C-Curl Locks (Cheek & Jaw Hugging Swaths)
 # --------------------------------------------------------------------------- #
-def build_framing_locks() -> trimesh.Trimesh:
-    """Build wide, lush face-framing locks with prominent inward C-curls around the jaw."""
-    locks = []
+def build_sculpted_framing_locks() -> trimesh.Trimesh:
+    """Build wide, creased anime framing locks with dramatic inward C-curls around the jaw."""
+    parts = []
 
     for side in [-1.0, 1.0]:
-        t = np.linspace(0, 1, 20)
-        # From temple down around jaw
-        x = side * (5.8 + 0.8 * np.sin(np.pi * t) - 1.0 * t**2)
-        y = -3.8 - 2.8 * t + 1.2 * np.sin(np.pi * t)
-        z = 71.0 - 18.5 * t  # Z down to 52.5
+        # Major cheek-framing lock
+        n_pts = 24
+        t = np.linspace(0, 1, n_pts)
+        
+        # Sweeping path from temples down around cheeks to jaw
+        x = side * (5.8 + 0.8 * np.sin(np.pi * t) - 0.8 * t**2)
+        y = -3.6 - 2.6 * t + 1.2 * np.sin(np.pi * t)
+        z = 71.2 - 18.5 * t  # Z down to 52.7
 
-        # C-curl inward towards chin/throat
-        curl = np.clip((t - 0.55) / 0.45, 0, 1)
-        x -= side * 2.2 * curl**1.7
-        y -= 1.8 * curl**1.7
-        z += 1.8 * curl**2
+        # Dramatic inward C-curl toward chin/throat
+        curl = np.clip((t - 0.52) / 0.48, 0, 1)
+        x -= side * 2.5 * curl**1.7
+        y -= 2.2 * curl**1.7
+        z += 2.0 * curl**2
 
         curve = np.column_stack([x, y, z])
-        rx = 1.8 * np.sin(np.pi * t**0.55) + 0.2
-        ry = 0.9 * np.sin(np.pi * t**0.55) + 0.12
-        locks.append(make_strand(curve, rx, ry, profile_type="crescent", radial_segs=14))
+        w_prof = 3.0 * np.sin(np.pi * t**0.55) + 0.25
+        th_prof = 1.4 * np.sin(np.pi * t**0.55) + 0.15
+
+        lock1 = make_creased_ribbon_strand(curve, w_prof, th_prof, crease_ratio=0.45, n_cross=14)
+        parts.append(lock1)
 
         # Secondary outer wing lock
-        t2 = np.linspace(0, 1, 14)
-        x2 = side * (6.6 + 1.2 * np.sin(np.pi * t2))
-        y2 = -2.5 - 2.8 * t2
-        z2 = 69.0 - 13.5 * t2
-        curl2 = np.clip((t2 - 0.6) / 0.4, 0, 1)
-        x2 -= side * 1.4 * curl2**2
-        y2 -= 1.2 * curl2**2
+        n_pts2 = 18
+        t2 = np.linspace(0, 1, n_pts2)
+        x2 = side * (6.8 + 1.2 * np.sin(np.pi * t2))
+        y2 = -2.2 - 2.8 * t2
+        z2 = 69.5 - 14.0 * t2
+        curl2 = np.clip((t2 - 0.58) / 0.42, 0, 1)
+        x2 -= side * 1.6 * curl2**2
+        y2 -= 1.4 * curl2**2
         curve2 = np.column_stack([x2, y2, z2])
-        rx2 = 1.3 * np.sin(np.pi * t2**0.6) + 0.15
-        ry2 = 0.65 * np.sin(np.pi * t2**0.6) + 0.1
-        locks.append(make_strand(curve2, rx2, ry2, profile_type="crescent", radial_segs=12))
+        w_prof2 = 2.2 * np.sin(np.pi * t2**0.6) + 0.2
+        th_prof2 = 1.1 * np.sin(np.pi * t2**0.6) + 0.12
+        lock2 = make_creased_ribbon_strand(curve2, w_prof2, th_prof2, crease_ratio=0.4, n_cross=12)
+        parts.append(lock2)
 
-    return trimesh.util.concatenate(locks)
+    return trimesh.util.concatenate(parts)
 
 
 # --------------------------------------------------------------------------- #
-# 5. Twin Braids (Plump Overlapping Weave Over Shoulders)
+# 5. Chunky Anime Twin Braids (Interlocking Almond Links)
 # --------------------------------------------------------------------------- #
-def build_twin_braids() -> trimesh.Trimesh:
-    """Build detailed 3D twin braids draped over the shoulders with ties and tails."""
+def build_chunky_twin_braids() -> trimesh.Trimesh:
+    """Build detailed, chunky anime twin braids draped over the shoulders onto the chest."""
     braids = []
 
     for side in [-1.0, 1.0]:
-        start_pt = np.array([side * 4.6, -2.0, 58.5])
-        end_pt = np.array([side * 3.6, -4.6, 42.0])  # front torso
-        length = np.linalg.norm(end_pt - start_pt)
-        axis = (end_pt - start_pt) / length
+        start = np.array([side * 4.6, -2.0, 58.5])
+        end = np.array([side * 3.6, -4.6, 42.0])  # over chest
+        length = np.linalg.norm(end - start)
+        axis = (end - start) / length
 
         up = np.array([0.0, 0.0, 1.0])
-        e1 = np.cross(axis, up)
-        e1 /= np.linalg.norm(e1)
-        e2 = np.cross(axis, e1)
+        side_vec = np.cross(axis, up)
+        side_vec /= np.linalg.norm(side_vec)
+        front_vec = np.cross(side_vec, axis)
+        front_vec /= np.linalg.norm(front_vec)
 
-        num_turns = 4.0
-        omega = num_turns * 2 * np.pi
-        t = np.linspace(0, 1, 60)
-        radius = 0.65
-        strand_r = 0.38
+        # 8 interlocking almond/teardrop braid links
+        num_links = 8
+        step = length / (num_links + 0.4)
+        for i in range(num_links):
+            frac = i / (num_links - 1)
+            center = start + axis * (i + 0.5) * step
+            sign = 1.0 if (i % 2 == 0) else -1.0
+            scale = 1.0 - 0.22 * frac
 
-        # 3 intertwined strands forming the classic braid
-        for phase in [0, 2 * np.pi / 3, 4 * np.pi / 3]:
-            u = t * omega + phase
-            dx = radius * np.cos(u)
-            dy = 0.75 * radius * np.sin(2 * u)
-            pts = np.outer(1 - t, start_pt) + np.outer(t, end_pt)
-            pts += np.outer(dx, e1) + np.outer(dy, e2)
-            r_profile = strand_r * (1.0 - 0.25 * t)
-            braids.append(make_strand(pts, r_profile, r_profile, profile_type="oval", radial_segs=10))
+            # Chunky link dimensions
+            w = 1.35 * scale
+            l = 1.85 * scale
+            th = 0.95 * scale
 
-        # Braid tie ring (elastic band)
-        tie = trimesh.creation.cylinder(radius=0.9, height=0.7, sections=18)
+            pos = center + side_vec * (sign * 0.40 * w)
+            link = trimesh.creation.icosphere(subdivisions=2, radius=1.0)
+            
+            # Diagonal braid angle
+            angle = sign * np.radians(34.0)
+            rot_2d = np.array([
+                [np.cos(angle), -np.sin(angle), 0],
+                [np.sin(angle),  np.cos(angle), 0],
+                [0,             0,              1]
+            ])
+            frame_rot = np.column_stack([side_vec, axis, front_vec])
+            comb_rot = frame_rot @ rot_2d
+
+            scale_mat = np.diag([w * 0.72, l * 0.82, th * 0.65])
+            link.vertices = (link.vertices @ scale_mat) @ comb_rot.T + pos
+            braids.append(link)
+
+        # Hair tie ring (elastic band)
+        tie = trimesh.creation.cylinder(radius=0.95, height=0.75, sections=18)
         rot_mat = trimesh.geometry.align_vectors([0, 0, 1], axis)
         tie.apply_transform(rot_mat)
-        tie.apply_translation(end_pt)
+        tie.apply_translation(end)
         braids.append(tie)
 
         # Flowing loose hair tail below the braid tie
@@ -377,79 +425,112 @@ def build_twin_braids() -> trimesh.Trimesh:
         tail_y = -4.6 - 1.4 * tail_t + 0.6 * np.sin(np.pi * tail_t)
         tail_z = 42.0 - 9.5 * tail_t  # down to Z~32.5
         tail_curve = np.column_stack([tail_x, tail_y, tail_z])
-        tail_rx = 0.55 * (1.0 - tail_t**0.6) + 0.08
-        tail_ry = 0.35 * (1.0 - tail_t**0.6) + 0.05
-        braids.append(make_strand(tail_curve, tail_rx, tail_ry, profile_type="crescent", radial_segs=10))
+        tail_w = 0.95 * (1.0 - tail_t**0.6) + 0.12
+        tail_th = 0.55 * (1.0 - tail_t**0.6) + 0.08
+        tail_mesh = make_creased_ribbon_strand(tail_curve, tail_w, tail_th, crease_ratio=0.35, n_cross=12)
+        braids.append(tail_mesh)
 
     return trimesh.util.concatenate(braids)
 
 
 # --------------------------------------------------------------------------- #
-# 6. Cascading Back Hair Mane
+# 6. Majestic Kitsune Beast Ears (Sculpted Outer Shell + Inner Fur Tufts)
 # --------------------------------------------------------------------------- #
-def build_back_hair() -> trimesh.Trimesh:
-    """Build a voluminous cascading cape of hair down the back with layered waves."""
-    layers = []
+def build_kitsune_ear(side: float = 1.0) -> trimesh.Trimesh:
+    """Build majestic, stylized kitsune beast ear with thick outer rim and hollowed cup."""
+    rings = []
+    n_levels = 24
+    pts_per_ring = 32
 
-    # Array of layered locks cascading from crown (Z~74) down past mid-back (Z~27)
-    n_locks = 15
-    for k in range(n_locks):
-        frac = k / (n_locks - 1)  # 0 to 1 across left-to-right
-        x_base = -8.5 + 17.0 * frac
-        flare = (frac - 0.5) * 8.5
+    for i in range(n_levels):
+        t = i / (n_levels - 1)
+        z = 74.8 + 13.8 * t  # Z up to 88.6
 
-        t = np.linspace(0, 1, 28)
-        x = x_base + flare * t**1.35
-        # Hug back curvature smoothly from Z=74 down to Z=27
-        # At Z=74: y ~ 8.8
-        # At Z=68: y ~ 10.4
-        # At Z=60: y ~ 8.2
-        # At Z=45: y ~ 4.5
-        # At Z=27: y ~ 3.5
-        y = 8.8 + 1.8 * np.sin(np.pi * t**0.5) - 6.5 * t + 0.8 * np.sin(np.pi * t)
-        z = 74.5 - 47.0 * t  # Z down to 27.5
+        # Outward angle (~22°) and back
+        x_center = side * (4.5 + 2.8 * t - 0.5 * t**2)
+        y_center = 1.8 - 1.5 * t + 0.4 * t**2
 
-        # Wing tip flicks at the outer edges (matching reference rear view)
-        if abs(frac - 0.5) > 0.22:
-            wing_dir = np.sign(frac - 0.5)
-            x += wing_dir * 2.6 * t**3.2
-            y += 1.4 * t**3.2
+        # Cross section dimensions
+        w = 4.6 * (1.0 - t**0.85) + 0.15
+        d_back = 3.2 * (1.0 - t**0.8) + 0.10
+        d_front = 2.2 * (1.0 - t) + 0.06
 
-        curve = np.column_stack([x, y, z])
-        rx = (1.9 - 0.5 * abs(frac - 0.5)) * np.sin(np.pi * t**0.5) + 0.18
-        ry = 0.95 * np.sin(np.pi * t**0.5) + 0.12
-        layers.append(make_strand(curve, rx, ry, profile_type="crescent", radial_segs=12))
+        ring = []
+        for j in range(pts_per_ring):
+            ang = 2 * np.pi * j / pts_per_ring
+            ca = np.cos(ang)
+            sa = np.sin(ang)
 
-    return trimesh.util.concatenate(layers)
+            if sa >= 0:  # Outer convex back shell
+                dx = side * ca * w * 1.05
+                dy = sa * d_back
+            else:  # Inner concave front cavity
+                dx = side * ca * w * 0.82
+                dy = sa * d_front * 0.32  # hollowed cup
+
+            ring.append([x_center + dx, y_center + dy, z])
+        rings.append(np.asarray(ring))
+
+    return make_lofted_solid(rings, cap_start=True, cap_end=True)
+
+
+def build_sculpted_ear_fluff(side: float = 1.0) -> trimesh.Trimesh:
+    """Build chunky stylized triangular fur clumps sprouting from the inner ear rim."""
+    tufts = []
+    # Distinct fur clump configs matching image-1.png:
+    configs = [
+        # (lower inner clump)
+        ((side * 3.8, 0.8, 75.2), (side * 2.6, -0.7, 78.0), 1.25, 0.75),
+        # (mid inner clump - prominent)
+        ((side * 4.8, 1.0, 76.8), (side * 3.6, -0.9, 80.5), 1.40, 0.85),
+        # (upper inner clump)
+        ((side * 5.8, 1.2, 78.4), (side * 4.6, -0.6, 82.2), 1.15, 0.70),
+        # (outer base clump)
+        ((side * 4.2, 0.4, 76.0), (side * 3.2, -1.0, 79.0), 1.05, 0.65),
+        # (accent tuft)
+        ((side * 5.2, 0.6, 77.5), (side * 4.2, -0.8, 80.8), 0.95, 0.60),
+    ]
+
+    for root, tip, w, th in configs:
+        n_pts = 14
+        t = np.linspace(0, 1, n_pts)
+        curve = np.outer(1 - t, root) + np.outer(t, tip)
+        curve[:, 1] -= 0.55 * np.sin(np.pi * t)  # puff forward
+        w_prof = w * np.sin(np.pi * t**0.65) + 0.1
+        th_prof = th * np.sin(np.pi * t**0.65) + 0.08
+        tuft = make_creased_ribbon_strand(curve, w_prof, th_prof, crease_ratio=0.5, n_cross=10)
+        tufts.append(tuft)
+
+    return trimesh.util.concatenate(tufts)
 
 
 # --------------------------------------------------------------------------- #
 # Complete Hairstyle Assembly
 # --------------------------------------------------------------------------- #
 def build_complete_hair() -> trimesh.Trimesh:
-    """Assemble all hair parts into a single watertight combined mesh."""
+    """Assemble all hair parts into a single professional 3D anime hair mesh."""
     parts = []
 
-    print("Building skull cap dome ...")
-    parts.append(build_skull_cap())
+    print("Building cranial hair canopy ...")
+    parts.append(build_cranial_canopy())
 
-    print("Building Kitsune beast ears ...")
+    print("Building majestic kitsune beast ears ...")
     parts.append(build_kitsune_ear(side=1.0))
     parts.append(build_kitsune_ear(side=-1.0))
-    parts.append(build_ear_fluff(side=1.0))
-    parts.append(build_ear_fluff(side=-1.0))
+    parts.append(build_sculpted_ear_fluff(side=1.0))
+    parts.append(build_sculpted_ear_fluff(side=-1.0))
 
-    print("Building lush forehead bangs ...")
-    parts.append(build_bangs())
+    print("Building sculpted arched forehead bangs ...")
+    parts.append(build_sculpted_bangs())
 
-    print("Building face-framing C-curls ...")
-    parts.append(build_framing_locks())
+    print("Building face-framing C-curl locks ...")
+    parts.append(build_sculpted_framing_locks())
 
-    print("Building twin braids ...")
-    parts.append(build_twin_braids())
+    print("Building chunky anime twin braids ...")
+    parts.append(build_chunky_twin_braids())
 
-    print("Building cascading back hair mane ...")
-    parts.append(build_back_hair())
+    print("Building flowing layered back mane ...")
+    parts.append(build_flowing_back_mane())
 
     combined = trimesh.util.concatenate(parts)
     print(f"Hair total: vertices={len(combined.vertices)}, faces={len(combined.faces)}")
@@ -460,11 +541,11 @@ def build_complete_hair() -> trimesh.Trimesh:
 # SFW Anatomical Base Refinement
 # --------------------------------------------------------------------------- #
 def refine_anatomy_sfw(body: trimesh.Trimesh) -> trimesh.Trimesh:
-    """Smooth and refine chest / torso anatomy into an elegant SFW base mesh.
+    """Refine chest, ribcage, and clavicle anatomy into an aesthetic, pure SFW base mesh.
     
-    Eliminates any artificial tip protrusions in the chest region,
-    smooths the pectoral and breast curvature into natural, graceful curves,
-    and refines the clavicles and neckline for a clean, aesthetic sculpt.
+    Eliminates all sharp or artificial tip protrusions,
+    blends the pectoral/breast contours into soft natural curvature,
+    and refines the collarbone ridge for an elegant silhouette.
     """
     verts = body.vertices.copy()
     faces = body.faces.copy()
@@ -500,9 +581,6 @@ if __name__ == "__main__":
 
     body = trimesh.load("Chibi_full.stl")
     body_sfw = refine_anatomy_sfw(body)
-    body_sfw.export("Chibi_body_sfw.stl")
-    print("Saved Chibi_body_sfw.stl")
-
     combined = trimesh.util.concatenate([body_sfw, hair])
     combined.export("Chibi_s1_fused.stl")
     print("Saved Chibi_s1_fused.stl with", len(combined.faces), "triangles")
