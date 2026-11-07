@@ -1,0 +1,57 @@
+=== Diagnosing Blend File: /home/runner/work/Chibi/Chibi/ICHxTenebra.v0.0.0.0.0.0-s0.blend ===
+Blender version: 4.2.0
+Total objects: 12
+Total materials: 2
+Mesh objects count: 2
+
+--- Mesh Object #1: 'reVAmped_character_female_8k' ---
+  Visible in viewport: True, Hide render: False
+  Vertices: 28992, Polygons: 29963, Edges: 58951
+  World center: (-0.000, 0.686, 38.712)
+  Dimensions: (46.587, 19.456, 77.795)
+  Modifiers (3): ['Armature:ARMATURE', 'AAA_Pose_CorrectiveSmooth:CORRECTIVE_SMOOTH', 'AAA_CatmullClark_Subdiv:SUBSURF']
+  Material slots (1):
+    Slot 0: 'M_Skin_PeachPorcelain_8K' -> 29963 polygons
+  UV layers: ['UVMap']
+
+--- Mesh Object #2: 'Studio_Infinity_Cyclorama' ---
+  Visible in viewport: True, Hide render: False
+  Vertices: 825, Polygons: 768, Edges: 1592
+  World center: (0.000, -48.500, 119.884)
+  Dimensions: (560.000, 363.000, 240.232)
+  Modifiers (0): []
+  Material slots (1):
+    Slot 0: 'M_Cinema_ObsidianSilk_Cyclorama' -> 768 polygons
+  UV layers: []
+
+=== Materials Detail ===
+Material: 'M_Cinema_ObsidianSilk_Cyclorama', use_nodes=True
+  PrincipledBSDF: BaseColor=(0.03400000184774399, 0.029999999329447746, 0.04800000041723251, 1.0), Roughness=0.5799999833106995
+Material: 'M_Skin_PeachPorcelain_8K', use_nodes=True
+  PrincipledBSDF: BaseColor=(0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0), Roughness=0.5
+  ImageTexture: 'T_Skin_BaseColor_8K' (filepath=/var/tmp/cine8k/T_Skin_BaseColor_8K.png)
+  ImageTexture: 'T_Skin_SSS_8K' (filepath=/var/tmp/cine8k/T_Skin_SSS_8K.png)
+  ImageTexture: 'T_Skin_Roughness_8K' (filepath=/var/tmp/cine8k/T_Skin_Roughness_8K.png)
+  ImageTexture: 'T_Skin_Normal_8K' (filepath=/var/tmp/cine8k/T_Skin_Normal_8K.png)
+
+Textures found:
+  BaseColor: /home/runner/work/Chibi/Chibi/textures/skin_basecolor.png
+  Roughness: /home/runner/work/Chibi/Chibi/textures/skin_roughness.png
+  Normal: /home/runner/work/Chibi/Chibi/textures/skin_normal.png
+
+=== Analyzing and Resolving Overlapping / Black Areas ===
+Comparison 'reVAmped_character_female_8k' vs 'Studio_Infinity_Cyclorama': center distance=94.9112, vertex ratio=0.0285
+
+Remaining mesh objects (2): ['reVAmped_character_female_8k', 'Studio_Infinity_Cyclorama']
+
+Processing mesh object 'reVAmped_character_female_8k':
+  Current material slots: ['M_Skin_PeachPorcelain_8K']
+  Cleaned: object 'reVAmped_character_female_8k' now exclusively uses 'DewySatinPorcelain_8K' on all 29963 polygons.
+
+Processing mesh object 'Studio_Infinity_Cyclorama':
+  Current material slots: ['M_Cinema_ObsidianSilk_Cyclorama']
+  Cleaned: object 'Studio_Infinity_Cyclorama' now exclusively uses 'DewySatinPorcelain_8K' on all 768 polygons.
+Packed texture: skin_basecolor.png
+Packed texture: skin_roughness.png
+Packed texture: skin_normal.png
+Saving fixed blend file to: /home/runner/work/Chibi/Chibi/ICHxTenebra_with_skin.blend
