@@ -165,6 +165,7 @@ jobs:
             gh release upload "v0.0.0.0.0.0-s1" \
               Chibi_s1_fused.stl \
               Chibi_hair.stl \
+              preview/chibi_s1_color_preview.png \
               preview/chibi_s1_preview.png \
               --clobber
             gh release view "v0.0.0.0.0.0-s1"
