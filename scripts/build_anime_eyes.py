@@ -31,92 +31,182 @@ def set_input(node, name: str, value) -> None:
         node.inputs[name].default_value = value
 
 
-def create_anime_eye(name: str, center: Vector, radius_x: float, radius_z: float, depth: float, is_left: bool) -> bpy.types.Object:
-    """Create a curved anime eye mesh with clean UV mapping and natural eye contour."""
-    mesh = bpy.data.meshes.new(name)
-    bm = bmesh.new()
+def get_surface_point(char_obj: bpy.types.Object | None, x: float, z: float) -> tuple[Vector, Vector]:
+    """Find the front face surface location and normal for given (x, z)."""
+    if char_obj is not None:
+        inv = char_obj.matrix_world.inverted()
+        # Ray from in front of the face pointing toward +Y (into the face)
+        ray_origin = inv @ Vector((x, -18.0, z))
+        ray_dir = (inv.to_3x3() @ Vector((0.0, 1.0, 0.0))).normalized()
+        hit, loc, norm, _ = char_obj.ray_cast(ray_origin, ray_dir)
+        if hit:
+            world_loc = char_obj.matrix_world @ loc
+            world_norm = (char_obj.matrix_world.to_3x3() @ norm).normalized()
+            return world_loc, world_norm
 
-    rows, cols = 20, 24
-    x_angles = np.linspace(-math.radians(45), math.radians(45), cols)
-    z_angles = np.linspace(-math.radians(38), math.radians(38), rows)
+    # Fallback to smooth chibi facial curvature if raycast misses
+    head_r = 6.35
+    x_clamped = min(abs(x), head_r - 0.2)
+    y_approx = -math.sqrt(max(head_r**2 - x_clamped**2, 1.0))
+    y_approx -= 0.12 * math.cos(math.pi * np.clip((z - 65.12) / 1.5, -1.0, 1.0))
+    norm = Vector((x / head_r, -math.sqrt(max(1.0 - (x / head_r) ** 2, 0.05)), 0.0)).normalized()
+    return Vector((x, y_approx, z)), norm
 
-    grid_verts = []
-    for r, phi in enumerate(z_angles):
-        row_verts = []
-        for c, theta in enumerate(x_angles):
-            cos_factor = math.cos(theta) * math.cos(phi)
-            x = center.x + radius_x * math.sin(theta)
-            # Convex curve following eye socket curvature
-            y = center.y - depth * (cos_factor - 0.25)
-            z = center.z + radius_z * math.sin(phi)
-            vert = bm.verts.new((x, y, z))
-            row_verts.append(vert)
-        grid_verts.append(row_verts)
 
+def create_symmetric_anime_eyes(
+    char_obj: bpy.types.Object | None,
+    center_x: float = 2.22,
+    center_z: float = 65.12,
+    radius_x: float = 2.02,
+    radius_z: float = 1.30,
+    rows: int = 22,
+    cols: int = 28,
+) -> tuple[bpy.types.Object, bpy.types.Object]:
+    """Create left and right anime eye meshes with exact 100% mirror symmetry and face contouring."""
+    mesh_l = bpy.data.meshes.new("AnimeEye_L")
+    mesh_r = bpy.data.meshes.new("AnimeEye_R")
+    bm_l = bmesh.new()
+    bm_r = bmesh.new()
+
+    # Left eye (+X, viewer's right): x goes from inner nose (+0.20) to outer temple (+4.24)
+    # Right eye (-X, viewer's left): x goes from outer temple (-4.24) to inner nose (-0.20)
+    xs_l = np.linspace(center_x - radius_x, center_x + radius_x, cols)
+    zs = np.linspace(center_z - radius_z, center_z + radius_z, rows)
+
+    grid_l = []
+    grid_r = []
+
+    for r in range(rows):
+        row_l = []
+        row_r = []
+        z_val = zs[r]
+        for c in range(cols):
+            x_l = xs_l[c]
+            # Raycast surface point for left eye
+            loc_l, norm_l = get_surface_point(char_obj, x_l, z_val)
+            # Offset slightly above skin to float cleanly
+            v_l = loc_l + norm_l * 0.020
+            row_l.append(v_l)
+
+        # Build exact mirror for right eye: x_r[c] == -x_l[cols - 1 - c]
+        for c in range(cols):
+            v_l_mirrored = row_l[cols - 1 - c]
+            v_r = Vector((-v_l_mirrored.x, v_l_mirrored.y, v_l_mirrored.z))
+            row_r.append(v_r)
+
+        grid_l.append([bm_l.verts.new(p) for p in row_l])
+        grid_r.append([bm_r.verts.new(p) for p in row_r])
+
+    # Build quads
     for r in range(rows - 1):
         for c in range(cols - 1):
-            v1 = grid_verts[r][c]
-            v2 = grid_verts[r][c + 1]
-            v3 = grid_verts[r + 1][c + 1]
-            v4 = grid_verts[r + 1][c]
-            bm.faces.new((v1, v2, v3, v4))
+            # Left eye faces (counter-clockwise)
+            bm_l.faces.new((grid_l[r][c], grid_l[r][c + 1], grid_l[r + 1][c + 1], grid_l[r + 1][c]))
+            # Right eye faces
+            bm_r.faces.new((grid_r[r][c], grid_r[r][c + 1], grid_r[r + 1][c + 1], grid_r[r + 1][c]))
 
-    # UV unwrap
-    uv_layer = bm.loops.layers.uv.new("UVMap")
+    # Setup standard UVs
+    # On left eye: c=0 is inner tear duct (u=0), c=cols-1 is outer lash wing (u=1) -> uses eye_open_R.png
+    # On right eye: c=0 is outer lash wing (u=0), c=cols-1 is inner tear duct (u=1) -> uses eye_open_L.png
+    uv_l = bm_l.loops.layers.uv.new("UVMap")
+    uv_r = bm_r.loops.layers.uv.new("UVMap")
+
     for r in range(rows - 1):
         for c in range(cols - 1):
             u0 = c / (cols - 1)
             u1 = (c + 1) / (cols - 1)
             v0 = r / (rows - 1)
             v1 = (r + 1) / (rows - 1)
-            if not is_left:
-                u0, u1 = 1.0 - u0, 1.0 - u1
 
-            f = bm.faces.get([grid_verts[r][c], grid_verts[r][c + 1], grid_verts[r + 1][c + 1], grid_verts[r + 1][c]])
-            if f:
-                f.loops[0][uv_layer].uv = (u0, v0)
-                f.loops[1][uv_layer].uv = (u1, v0)
-                f.loops[2][uv_layer].uv = (u1, v1)
-                f.loops[3][uv_layer].uv = (u0, v1)
+            f_l = bm_l.faces.get([grid_l[r][c], grid_l[r][c + 1], grid_l[r + 1][c + 1], grid_l[r + 1][c]])
+            if f_l:
+                f_l.loops[0][uv_l].uv = (u0, v0)
+                f_l.loops[1][uv_l].uv = (u1, v0)
+                f_l.loops[2][uv_l].uv = (u1, v1)
+                f_l.loops[3][uv_l].uv = (u0, v1)
 
-    bm.to_mesh(mesh)
-    bm.free()
-    mesh.update()
+            f_r = bm_r.faces.get([grid_r[r][c], grid_r[r][c + 1], grid_r[r + 1][c + 1], grid_r[r + 1][c]])
+            if f_r:
+                f_r.loops[0][uv_r].uv = (u0, v0)
+                f_r.loops[1][uv_r].uv = (u1, v0)
+                f_r.loops[2][uv_r].uv = (u1, v1)
+                f_r.loops[3][uv_r].uv = (u0, v1)
 
-    obj = bpy.data.objects.new(name, mesh)
-    bpy.context.scene.collection.objects.link(obj)
-    return obj
+    bm_l.to_mesh(mesh_l)
+    bm_r.to_mesh(mesh_r)
+    bm_l.free()
+    bm_r.free()
+    mesh_l.update()
+    mesh_r.update()
+
+    obj_l = bpy.data.objects.new("AnimeEye_L", mesh_l)
+    obj_r = bpy.data.objects.new("AnimeEye_R", mesh_r)
+    bpy.context.scene.collection.objects.link(obj_l)
+    bpy.context.scene.collection.objects.link(obj_r)
+    return obj_l, obj_r
 
 
-def setup_blink_morphs(obj: bpy.types.Object, center: Vector, radius_z: float) -> None:
+def setup_symmetric_blink_morphs(
+    obj_l: bpy.types.Object,
+    obj_r: bpy.types.Object,
+    center_z: float = 65.12,
+    radius_z: float = 1.30,
+    rows: int = 22,
+    cols: int = 28,
+) -> None:
     """Setup Basis and Blink morph targets where upper eyelid and feathered lashes
-    smoothly glide down in an arc to meet the lower lash line."""
-    if not obj.data.shape_keys:
-        obj.shape_key_add(name="Basis")
+    smoothly glide down in an arc to meet the lower lash line in 100% exact symmetry."""
+    for obj in [obj_l, obj_r]:
+        if not obj.data.shape_keys:
+            obj.shape_key_add(name="Basis")
 
-    blink_key = obj.shape_key_add(name="Blink")
-    blink_l_key = obj.shape_key_add(name="EyeBlink_L")
-    blink_r_key = obj.shape_key_add(name="EyeBlink_R")
+    blink_l = obj_l.shape_key_add(name="Blink")
+    blink_r = obj_r.shape_key_add(name="Blink")
+    obj_l.shape_key_add(name="EyeBlink_L")
+    obj_r.shape_key_add(name="EyeBlink_R")
 
-    z_bottom = center.z - radius_z * 0.85
-    z_top = center.z + radius_z * 0.85
+    z_bottom = center_z - radius_z * 0.88
+    z_top = center_z + radius_z * 0.88
     z_range = max(z_top - z_bottom, 1e-6)
 
-    for idx, v in enumerate(obj.data.vertices):
-        co = v.co.copy()
-        # Normalized height t in [0.0 (bottom) .. 1.0 (top)]
-        t = float(np.clip((co.z - z_bottom) / z_range, 0.0, 1.0))
+    # Calculate morph on Left Eye (+X)
+    target_l_grid = []
+    for r in range(rows):
+        row_targets = []
+        for c in range(cols):
+            idx = r * cols + c
+            co = obj_l.data.vertices[idx].co.copy()
+            t = float(np.clip((co.z - z_bottom) / z_range, 0.0, 1.0))
 
-        # Upper lid descends smoothly to bottom line (z_bottom)
-        # using a gentle anime crescent-eye curvature
-        crescent_curve = 0.12 * math.sin(math.pi * ((co.x - center.x) / 1.5 + 0.5))
-        closed_z = z_bottom + crescent_curve + (co.z - z_bottom) * 0.08
-        closed_y = co.y - 0.08 * math.sin(math.pi * t)
+            # Crescent curve across eye width (u_norm in [0, 1])
+            u_norm = c / (cols - 1)
+            crescent_curve = 0.12 * math.sin(math.pi * u_norm)
 
-        target_co = Vector((co.x, closed_y, closed_z))
-        blink_key.data[idx].co = target_co
-        blink_l_key.data[idx].co = target_co
-        blink_r_key.data[idx].co = target_co
+            closed_z = z_bottom + crescent_curve + (co.z - z_bottom) * 0.08
+            closed_y = co.y - 0.08 * math.sin(math.pi * t)
+            target = Vector((co.x, closed_y, closed_z))
+            row_targets.append(target)
+            blink_l.data[idx].co = target
+        target_l_grid.append(row_targets)
+
+    # Set exact mirror target on Right Eye (-X)
+    for r in range(rows):
+        for c in range(cols):
+            idx_r = r * cols + c
+            mirrored_target_l = target_l_grid[r][cols - 1 - c]
+            target_r = Vector((-mirrored_target_l.x, mirrored_target_l.y, mirrored_target_l.z))
+            blink_r.data[idx_r].co = target_r
+
+    # Copy to individual EyeBlink_L and EyeBlink_R
+    key_eb_l = obj_l.data.shape_keys.key_blocks.get("EyeBlink_L")
+    if key_eb_l:
+        for idx in range(len(obj_l.data.vertices)):
+            key_eb_l.data[idx].co = blink_l.data[idx].co
+
+    key_eb_r = obj_r.data.shape_keys.key_blocks.get("EyeBlink_R")
+    if key_eb_r:
+        for idx in range(len(obj_r.data.vertices)):
+            key_eb_r.data[idx].co = blink_r.data[idx].co
 
 
 def build_eye_material(tex_path: Path, is_left: bool) -> bpy.types.Material:
@@ -137,11 +227,11 @@ def build_eye_material(tex_path: Path, is_left: bool) -> bpy.types.Material:
 
     # Luminous anime eye shading
     set_input(bsdf, "Metallic", 0.0)
-    set_input(bsdf, "Roughness", 0.08)
-    set_input(bsdf, "Specular IOR Level", 0.65)
-    set_input(bsdf, "Coat Weight", 0.85)
-    set_input(bsdf, "Coat Roughness", 0.05)
-    set_input(bsdf, "Subsurface Weight", 0.12)
+    set_input(bsdf, "Roughness", 0.06)
+    set_input(bsdf, "Specular IOR Level", 0.70)
+    set_input(bsdf, "Coat Weight", 0.90)
+    set_input(bsdf, "Coat Roughness", 0.04)
+    set_input(bsdf, "Subsurface Weight", 0.10)
     set_input(bsdf, "Subsurface Radius", (1.6, 1.0, 0.6))
 
     if tex_path.exists():
@@ -212,34 +302,51 @@ def main() -> None:
         bg_node.inputs[1].default_value = 1.0
     scene.world = world
 
-    # Textures
-    tex_eye_l = tex_dir / "eye_open_L.png"
-    tex_eye_r = tex_dir / "eye_open_R.png"
+    # Find character mesh for surface raycasting
+    char_obj = None
+    for obj in bpy.data.objects:
+        if obj.type == "MESH" and "AnimeEye" not in obj.name and "Preview" not in obj.name:
+            char_obj = obj
+            print(f"Found character mesh for face surface raycasting: {char_obj.name}")
+            break
 
-    # Anatomical placement on Chibi face:
-    # Nose tip is at (0.1, -7.29, 63.9), cheeks at (+/-3.15, -6.1, 63.8)
-    # Eye centers: X = +/- 1.48, Y = -6.18, Z = 64.75
-    # Eye dimensions: width 2.7 (radius_x = 1.35), height 2.1 (radius_z = 1.05)
-    eye_radius_x = 1.35
-    eye_radius_z = 1.05
-    eye_depth = 0.22
-    pos_l = Vector((1.48, -6.18, 64.75))
-    pos_r = Vector((-1.48, -6.18, 64.75))
+    # Textures:
+    # eye_open_L.png: wing on left, tear duct on right -> for Character's Right eye (-X, viewer's left)
+    # eye_open_R.png: tear duct on left, wing on right -> for Character's Left eye (+X, viewer's right)
+    tex_eye_l = tex_dir / "eye_open_R.png"  # for Character Left (+X)
+    tex_eye_r = tex_dir / "eye_open_L.png"  # for Character Right (-X)
+
+    # Big, cute anime/chibi eye proportions:
+    # center_x = 2.22, center_z = 65.12
+    # radius_x = 2.02 (width = 4.04), radius_z = 1.30 (height = 2.60)
+    center_x = 2.22
+    center_z = 65.12
+    radius_x = 2.02
+    radius_z = 1.30
 
     mat_eye_l = build_eye_material(tex_eye_l, is_left=True)
     mat_eye_r = build_eye_material(tex_eye_r, is_left=False)
 
-    print("Building left and right anime eye assemblies...")
-    eye_l = create_anime_eye("AnimeEye_L", pos_l, eye_radius_x, eye_radius_z, eye_depth, is_left=True)
-    eye_r = create_anime_eye("AnimeEye_R", pos_r, eye_radius_x, eye_radius_z, eye_depth, is_left=False)
+    print("Building left and right anime eye assemblies with 100% exact mirror symmetry...")
+    eye_l, eye_r = create_symmetric_anime_eyes(
+        char_obj=char_obj,
+        center_x=center_x,
+        center_z=center_z,
+        radius_x=radius_x,
+        radius_z=radius_z,
+    )
 
     eye_l.data.materials.append(mat_eye_l)
     eye_r.data.materials.append(mat_eye_r)
 
-    # Setup Blink Shape Keys
-    print("Setting up Shape Keys for natural blinking...")
-    setup_blink_morphs(eye_l, pos_l, eye_radius_z)
-    setup_blink_morphs(eye_r, pos_r, eye_radius_z)
+    # Setup Blink Shape Keys with exact mirror symmetry
+    print("Setting up Shape Keys for natural blinking with exact mirror symmetry...")
+    setup_symmetric_blink_morphs(
+        obj_l=eye_l,
+        obj_r=eye_r,
+        center_z=center_z,
+        radius_z=radius_z,
+    )
 
     # Pack textures
     for img in bpy.data.images:
@@ -267,7 +374,7 @@ def main() -> None:
         print(f"GLB export notice: {e}")
 
     # Studio Portrait Lighting & Camera
-    face_center = Vector((0.0, -6.1, 64.4))
+    face_center = Vector((0.0, -6.1, 64.6))
     cam_data = bpy.data.cameras.new("FacePreviewCam")
     cam_obj = bpy.data.objects.new("FacePreviewCam", cam_data)
     scene.collection.objects.link(cam_obj)
