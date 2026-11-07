@@ -1,49 +1,8 @@
 === Opening Original Blend File: /home/runner/work/Chibi/Chibi/ICHxTenebra.v0.0.0.0.0.0-s0.blend ===
-Scene name: Scene
-View layers (1): ['ViewLayer']
-Collections (0): []
-
-=== Listing ALL 12 objects in bpy.data.objects ===
-  Object: 'Cinema_Backdrop_Halo' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
-  Object: 'Cinema_Bounce_Petal' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
-  Object: 'Cinema_Butterfly_Top' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
-  Object: 'Cinema_Fill_Silk' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
-  Object: 'Cinema_Key_Octabox' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
-  Object: 'Cinema_Rim_PearlR' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
-  Object: 'Cinema_Rim_SakuraL' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
-  Object: 'Cinematic_Front_Camera' (type=CAMERA, instance_type=NONE, hide_render=False, hide_viewport=False)
-  Object: 'illum position' (type=EMPTY, instance_type=NONE, hide_render=False, hide_viewport=False)
-  Object: 'revamped_body_base_female_standard_ARM' (type=ARMATURE, instance_type=NONE, hide_render=False, hide_viewport=False)
-  Object: 'reVAmped_character_female_8k' (type=MESH, instance_type=NONE, hide_render=False, hide_viewport=False)
-  Object: 'Studio_Infinity_Cyclorama' (type=MESH, instance_type=NONE, hide_render=False, hide_viewport=False)
-Removed 0 collection instances.
-
 Target character mesh: 'reVAmped_character_female_8k'
-Modifiers: ['Armature(ARMATURE)', 'AAA_Pose_CorrectiveSmooth(CORRECTIVE_SMOOTH)', 'AAA_CatmullClark_Subdiv(SUBSURF)']
-Shape keys: ['base', 'PelvisWidth', 'WaistWidth', 'ChestWidth', 'ShoulderWidth', 'BackCurve', 'RibcageDefine', 'WaistBoneDefine', 'HipsThiccness', 'HipsSlim', 'AnklesThiccness', 'ThighGap', 'FeetCurve', 'ArmsThiccness', 'ArmsSlim', 'ForearmsDefined', 'NailsLonger', 'BreastsLarge', 'BreastsSmall', 'BreastsUpwards', 'BreastsRounded', 'BreastsGrab', 'BreastsPaizuri', 'BreastsBalloons', 'BreastsApart', 'BreastsTogether', 'BreastsCleavage', 'BreastsRaise', 'BreastsMiddlePushup', 'BreastsLonger', 'BreastsDefine', 'BreastsSpread', 'BreastsWider', 'BreastsSmoosh', 'BreastsNipplePerky', 'BreastsNippleSize', 'BreastsNippleOutwards', 'BreastsNippleRound', 'BreastsNippleInvertedTriangle', 'BreastsNippleInvertedLine', 'BreastsNippleCannon', 'BreastsAreolaBigger', 'BellyPregnant', 'BellyDefine', 'BellyChubby', 'BellyUndefined', 'BulgeGroin1', 'BulgeGroin2', 'BellyStuffed', 'BellyBalloon', 'BellyBulgeStruggle1', 'BellyBulgeStruggle2', 'BellyBulgeStruggle3', 'BellyBulgeStruggle4', 'BellyBulgeStruggle5', 'BellyBulgeStruggle6', 'AssThiccness', 'AssUndefined', 'AssLowered', 'AssStiff', 'AssSmooth', 'BellyFit', 'BackFit', 'HipsFit', 'ArmsFit', 'VagOpen', 'VagOpen2', 'VagOpen3', 'VagPuffy', 'VagLipsPuffy', 'VagClitBigger', 'AnusOpen', 'BodyPositive', 'BodyPetite', 'BodyDefine', 'BodyshapeMale', 'BodyshapeShortstack', 'ShapeV5Old', 'ShapeV4', 'ShapeV3', 'ShapeV4.1', 'KneeBendCorrect.L', 'KneeBendCorrect.R', 'FootBendCorrect.L', 'FootBendCorrect.R', 'ToesBendCorrect.L', 'ToesBendCorrect.R', 'ArmBendCorrect.L', 'ArmBendCorrect.R']
-Vertex groups count: 133
-UV layers: ['UVMap']
-Color attributes / vertex colors: []
-
-Mesh connectivity: found 2 connected polygon islands / shells in 'reVAmped_character_female_8k':
-  Island #1: 19721 faces, bbox min=<Vector (-23.3230, -6.5925, -0.2374)>, max=<Vector (23.3230, 5.3099, 61.4552)>
-  Island #2: 10242 faces, bbox min=<Vector (-8.8614, -5.7083, 59.8692)>, max=<Vector (8.8614, 10.4397, 77.6412)>
-
-Analyzing multi-island structure for duplicate / overlapping coplanar shells...
-  Island #1: z_span=61.69 (from -0.24 to 61.46), faces=19721
-  Island #2: z_span=17.77 (from 59.87 to 77.64), faces=10242
-
-After shell cleanup: 28992 vertices, 29963 polygons.
-Inspecting modifier: Armature (type=ARMATURE)
-Inspecting modifier: AAA_Pose_CorrectiveSmooth (type=CORRECTIVE_SMOOTH)
-Inspecting modifier: AAA_CatmullClark_Subdiv (type=SUBSURF)
-
-Texture files:
-  BaseColor: /home/runner/work/Chibi/Chibi/textures/skin_basecolor.png
-  Roughness: /home/runner/work/Chibi/Chibi/textures/skin_roughness.png
-  Normal: /home/runner/work/Chibi/Chibi/textures/skin_normal.png
-Assigned DewySatinPorcelain_8K to 100% of character polygons (29963).
-Packed texture: skin_basecolor.png
-Packed texture: skin_roughness.png
-Packed texture: skin_normal.png
+Restored Studio_Infinity_Cyclorama backdrop material.
+Painting skin colors and roughness layers...
+Painted skin stats: {'top_light': 7581, 'cool_shade': 7233, 'face_glow': 488, 'forehead_glow': 71, 'cheek_halo': 350, 'cheek_left': 95, 'cheek_right': 95, 'eyelids': 16, 'nose': 0, 'lips': 0, 'lip_core': 0, 'beauty_mark': 0, 'rough_face': 684, 'rough_cheeks': 210, 'rough_eyelids': 22, 'rough_nose': 0, 'rough_lips': 0, 'rough_clavicle': 841, 'hands': 1988, 'knees': 0, 'feet': 4042, 'rough_hands': 2426, 'freckles': 79}
+Building Dewy Satin Porcelain skin material in Object Space...
+Applied material 'DewySatinPorcelain_8K' to 'reVAmped_character_female_8k'.
 Saving fixed blend file to: /home/runner/work/Chibi/Chibi/ICHxTenebra_with_skin.blend
