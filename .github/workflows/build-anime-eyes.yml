@@ -34,18 +34,38 @@ jobs:
             curl xz-utils xvfb libdbus-1-3 libegl1 libgl1 libglx-mesa0 \
             libx11-6 libxext6 libxfixes3 libxi6 libxkbcommon0 libxrender1 libxxf86vm1
 
-      - name: Download official Blender 4.2.0
+      - name: Download official Blender
         run: |
           set -euo pipefail
-          BLENDER_VERSION="4.2.0"
-          BLENDER_DIR="$RUNNER_TEMP/blender-$BLENDER_VERSION"
-          ARCHIVE="$RUNNER_TEMP/blender-$BLENDER_VERSION-linux-x64.tar.xz"
-          URL="https://download.blender.org/release/Blender4.2/blender-${BLENDER_VERSION}-linux-x64.tar.xz"
+          BLENDER_DIR="$RUNNER_TEMP/blender"
+          ARCHIVE="$RUNNER_TEMP/blender.tar.xz"
           mkdir -p "$BLENDER_DIR"
-          curl --fail --location --retry 3 "$URL" --output "$ARCHIVE"
-          tar -xJf "$ARCHIVE" --strip-components=1 -C "$BLENDER_DIR"
-          echo "BLENDER=$BLENDER_DIR/blender" >> "$GITHUB_ENV"
-          xvfb-run -a "$BLENDER_DIR/blender" --version
+          
+          URLS=(
+            "https://mirror.clarkson.edu/blender/release/Blender4.2/blender-4.2.0-linux-x64.tar.xz"
+            "https://ftp.nluug.nl/pub/graphics/blender/release/Blender4.2/blender-4.2.0-linux-x64.tar.xz"
+            "https://download.blender.org/release/Blender4.2/blender-4.2.0-linux-x64.tar.xz"
+            "https://mirror.clarkson.edu/blender/release/Blender4.2/blender-4.2.3-linux-x64.tar.xz"
+            "https://download.blender.org/release/Blender4.2/blender-4.2.3-linux-x64.tar.xz"
+          )
+          
+          DOWNLOADED=false
+          for u in "${URLS[@]}"; do
+            echo "Trying to download Blender from: $u"
+            if curl --fail --location --retry 2 --connect-timeout 10 "$u" --output "$ARCHIVE"; then
+              echo "Successfully downloaded from: $u"
+              tar -xJf "$ARCHIVE" --strip-components=1 -C "$BLENDER_DIR"
+              echo "BLENDER=$BLENDER_DIR/blender" >> "$GITHUB_ENV"
+              DOWNLOADED=true
+              break
+            fi
+          done
+
+          if [ "$DOWNLOADED" = false ]; then
+            echo "Direct downloads failed, installing via snap..."
+            sudo snap install blender --classic
+            echo "BLENDER=/snap/bin/blender" >> "$GITHUB_ENV"
+          fi
 
       - name: Download Chibi_pretty.blend from release v0.0.0.0.0.0-s0
         env:
