@@ -51,8 +51,12 @@ def make_lofted_solid(rings: list[np.ndarray], cap_start: bool = True, cap_end: 
         for j in range(pts_per_ring):
             faces.append([c1, lr + j, lr + ((j + 1) % pts_per_ring)])
 
-    return trimesh.Trimesh(vertices=np.asarray(verts, dtype=np.float64),
+    mesh = trimesh.Trimesh(vertices=np.asarray(verts, dtype=np.float64),
                            faces=np.asarray(faces, dtype=np.int64), process=True)
+    if mesh.is_watertight and mesh.volume < 0:
+        mesh.faces = mesh.faces[:, [0, 2, 1]]
+    trimesh.repair.fix_normals(mesh)
+    return mesh
 
 
 def make_creased_ribbon_strand(curve: np.ndarray, widths: np.ndarray, thicknesses: np.ndarray,

@@ -20,6 +20,8 @@
    - Безупречно сглаженная высокополигональная поверхность без артефактов и угловатостей;
    - Кинематографический PBR-шейдер кожи **Dewy Satin Porcelain** со спектральным подповерхностным рассеянием (Subsurface Scattering).
 
+![Chibi Pretty v0.0.0.0.0.0-s1 Full Color 3D Multi-Angle Preview](preview/chibi_s1_color_preview.png)
+
 ![Chibi Pretty v0.0.0.0.0.0-s1 Multi-Angle 3D Geometry Views](preview/chibi_s1_preview.png)
 
 ---
@@ -37,6 +39,7 @@
 | :--- | :--- | :---: |
 | **`Chibi_s1_fused.stl`** | Полная монолитная 3D-модель персонажа с телом и причёской Kitsune (122 316 треугольников) | STL Mesh |
 | **`Chibi_hair.stl`** | Автономный 3D-меш причёски Kemonomimi с ушками, косичками и прядями (25 640 треугольников) | STL Mesh |
+| **`chibi_s1_color_preview.png`** | 5-ракурсный полноцветный студийный 3D-предосмотр модели с материалами PBR (2500×776) | Color PNG |
 | **`chibi_s1_preview.png`** | 5-ракурсная ортографическая верификационная проекция 3D-геометрии (2300×752) | PNG Views |
 
 ---
