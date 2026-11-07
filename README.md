@@ -20,9 +20,7 @@
    - Безупречно сглаженная высокополигональная поверхность без артефактов и угловатостей;
    - Кинематографический PBR-шейдер кожи **Dewy Satin Porcelain** со спектральным подповерхностным рассеянием (Subsurface Scattering).
 
-![Chibi Pretty v0.0.0.0.0.0-s1 Kemonomimi Master Render](preview/chibi_v0_s1_kitsune_porcelain.png)
-
-![Chibi Pretty v0.0.0.0.0.0-s1 Multi-Angle Geometry Views](preview/chibi_s1_preview.png)
+![Chibi Pretty v0.0.0.0.0.0-s1 Multi-Angle 3D Geometry Views](preview/chibi_s1_preview.png)
 
 ---
 
@@ -37,10 +35,9 @@
 
 | Файл | Описание | Формат |
 | :--- | :--- | :---: |
-| **`Chibi_s1_fused.stl`** | Полная монолитная модель персонажа с телом и причёской Kitsune (125 780 треугольников) | STL Mesh |
-| **`Chibi_hair.stl`** | Автономный 3D-меш причёски Kemonomimi с ушками, косичками и прядями (29 104 треугольника) | STL Mesh |
-| **`chibi_v0_s1_kitsune_porcelain.png`** | Студийный 8K-рендер персонажа с кинематографическим светом и фарфоровой кожей | 8K PNG |
-| **`chibi_s1_preview.png`** | Многоракурсная ортографическая верификационная проекция геометрии (2300×752) | PNG Views |
+| **`Chibi_s1_fused.stl`** | Полная монолитная 3D-модель персонажа с телом и причёской Kitsune (122 316 треугольников) | STL Mesh |
+| **`Chibi_hair.stl`** | Автономный 3D-меш причёски Kemonomimi с ушками, косичками и прядями (25 640 треугольников) | STL Mesh |
+| **`chibi_s1_preview.png`** | 5-ракурсная ортографическая верификационная проекция 3D-геометрии (2300×752) | PNG Views |
 
 ---
 
