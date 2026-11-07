@@ -1,56 +1,48 @@
-=== Diagnosing Blend File: /home/runner/work/Chibi/Chibi/ICHxTenebra.v0.0.0.0.0.0-s0.blend ===
-Blender version: 4.2.0
-Total objects: 12
-Total materials: 2
-Mesh objects count: 2
+=== Opening Original Blend File: /home/runner/work/Chibi/Chibi/ICHxTenebra.v0.0.0.0.0.0-s0.blend ===
+Scene name: Scene
+View layers (1): ['ViewLayer']
+Collections (0): []
 
---- Mesh Object #1: 'reVAmped_character_female_8k' ---
-  Visible in viewport: True, Hide render: False
-  Vertices: 28992, Polygons: 29963, Edges: 58951
-  World center: (-0.000, 0.686, 38.712)
-  Dimensions: (46.587, 19.456, 77.795)
-  Modifiers (3): ['Armature:ARMATURE', 'AAA_Pose_CorrectiveSmooth:CORRECTIVE_SMOOTH', 'AAA_CatmullClark_Subdiv:SUBSURF']
-  Material slots (1):
-    Slot 0: 'M_Skin_PeachPorcelain_8K' -> 29963 polygons
-  UV layers: ['UVMap']
+=== Listing ALL 12 objects in bpy.data.objects ===
+  Object: 'Cinema_Backdrop_Halo' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
+  Object: 'Cinema_Bounce_Petal' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
+  Object: 'Cinema_Butterfly_Top' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
+  Object: 'Cinema_Fill_Silk' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
+  Object: 'Cinema_Key_Octabox' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
+  Object: 'Cinema_Rim_PearlR' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
+  Object: 'Cinema_Rim_SakuraL' (type=LIGHT, instance_type=NONE, hide_render=False, hide_viewport=False)
+  Object: 'Cinematic_Front_Camera' (type=CAMERA, instance_type=NONE, hide_render=False, hide_viewport=False)
+  Object: 'illum position' (type=EMPTY, instance_type=NONE, hide_render=False, hide_viewport=False)
+  Object: 'revamped_body_base_female_standard_ARM' (type=ARMATURE, instance_type=NONE, hide_render=False, hide_viewport=False)
+  Object: 'reVAmped_character_female_8k' (type=MESH, instance_type=NONE, hide_render=False, hide_viewport=False)
+  Object: 'Studio_Infinity_Cyclorama' (type=MESH, instance_type=NONE, hide_render=False, hide_viewport=False)
+Removed 0 collection instances.
 
---- Mesh Object #2: 'Studio_Infinity_Cyclorama' ---
-  Visible in viewport: True, Hide render: False
-  Vertices: 825, Polygons: 768, Edges: 1592
-  World center: (0.000, -48.500, 119.884)
-  Dimensions: (560.000, 363.000, 240.232)
-  Modifiers (0): []
-  Material slots (1):
-    Slot 0: 'M_Cinema_ObsidianSilk_Cyclorama' -> 768 polygons
-  UV layers: []
+Target character mesh: 'reVAmped_character_female_8k'
+Modifiers: ['Armature(ARMATURE)', 'AAA_Pose_CorrectiveSmooth(CORRECTIVE_SMOOTH)', 'AAA_CatmullClark_Subdiv(SUBSURF)']
+Shape keys: ['base', 'PelvisWidth', 'WaistWidth', 'ChestWidth', 'ShoulderWidth', 'BackCurve', 'RibcageDefine', 'WaistBoneDefine', 'HipsThiccness', 'HipsSlim', 'AnklesThiccness', 'ThighGap', 'FeetCurve', 'ArmsThiccness', 'ArmsSlim', 'ForearmsDefined', 'NailsLonger', 'BreastsLarge', 'BreastsSmall', 'BreastsUpwards', 'BreastsRounded', 'BreastsGrab', 'BreastsPaizuri', 'BreastsBalloons', 'BreastsApart', 'BreastsTogether', 'BreastsCleavage', 'BreastsRaise', 'BreastsMiddlePushup', 'BreastsLonger', 'BreastsDefine', 'BreastsSpread', 'BreastsWider', 'BreastsSmoosh', 'BreastsNipplePerky', 'BreastsNippleSize', 'BreastsNippleOutwards', 'BreastsNippleRound', 'BreastsNippleInvertedTriangle', 'BreastsNippleInvertedLine', 'BreastsNippleCannon', 'BreastsAreolaBigger', 'BellyPregnant', 'BellyDefine', 'BellyChubby', 'BellyUndefined', 'BulgeGroin1', 'BulgeGroin2', 'BellyStuffed', 'BellyBalloon', 'BellyBulgeStruggle1', 'BellyBulgeStruggle2', 'BellyBulgeStruggle3', 'BellyBulgeStruggle4', 'BellyBulgeStruggle5', 'BellyBulgeStruggle6', 'AssThiccness', 'AssUndefined', 'AssLowered', 'AssStiff', 'AssSmooth', 'BellyFit', 'BackFit', 'HipsFit', 'ArmsFit', 'VagOpen', 'VagOpen2', 'VagOpen3', 'VagPuffy', 'VagLipsPuffy', 'VagClitBigger', 'AnusOpen', 'BodyPositive', 'BodyPetite', 'BodyDefine', 'BodyshapeMale', 'BodyshapeShortstack', 'ShapeV5Old', 'ShapeV4', 'ShapeV3', 'ShapeV4.1', 'KneeBendCorrect.L', 'KneeBendCorrect.R', 'FootBendCorrect.L', 'FootBendCorrect.R', 'ToesBendCorrect.L', 'ToesBendCorrect.R', 'ArmBendCorrect.L', 'ArmBendCorrect.R']
+Vertex groups count: 133
+UV layers: ['UVMap']
+Color attributes / vertex colors: []
 
-=== Materials Detail ===
-Material: 'M_Cinema_ObsidianSilk_Cyclorama', use_nodes=True
-  PrincipledBSDF: BaseColor=(0.03400000184774399, 0.029999999329447746, 0.04800000041723251, 1.0), Roughness=0.5799999833106995
-Material: 'M_Skin_PeachPorcelain_8K', use_nodes=True
-  PrincipledBSDF: BaseColor=(0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0), Roughness=0.5
-  ImageTexture: 'T_Skin_BaseColor_8K' (filepath=/var/tmp/cine8k/T_Skin_BaseColor_8K.png)
-  ImageTexture: 'T_Skin_SSS_8K' (filepath=/var/tmp/cine8k/T_Skin_SSS_8K.png)
-  ImageTexture: 'T_Skin_Roughness_8K' (filepath=/var/tmp/cine8k/T_Skin_Roughness_8K.png)
-  ImageTexture: 'T_Skin_Normal_8K' (filepath=/var/tmp/cine8k/T_Skin_Normal_8K.png)
+Mesh connectivity: found 2 connected polygon islands / shells in 'reVAmped_character_female_8k':
+  Island #1: 19721 faces, bbox min=<Vector (-23.3230, -6.5925, -0.2374)>, max=<Vector (23.3230, 5.3099, 61.4552)>
+  Island #2: 10242 faces, bbox min=<Vector (-8.8614, -5.7083, 59.8692)>, max=<Vector (8.8614, 10.4397, 77.6412)>
 
-Textures found:
+Analyzing multi-island structure for duplicate / overlapping coplanar shells...
+  Island #1: z_span=61.69 (from -0.24 to 61.46), faces=19721
+  Island #2: z_span=17.77 (from 59.87 to 77.64), faces=10242
+
+After shell cleanup: 28992 vertices, 29963 polygons.
+Inspecting modifier: Armature (type=ARMATURE)
+Inspecting modifier: AAA_Pose_CorrectiveSmooth (type=CORRECTIVE_SMOOTH)
+Inspecting modifier: AAA_CatmullClark_Subdiv (type=SUBSURF)
+
+Texture files:
   BaseColor: /home/runner/work/Chibi/Chibi/textures/skin_basecolor.png
   Roughness: /home/runner/work/Chibi/Chibi/textures/skin_roughness.png
   Normal: /home/runner/work/Chibi/Chibi/textures/skin_normal.png
-
-=== Analyzing and Resolving Overlapping / Black Areas ===
-Comparison 'reVAmped_character_female_8k' vs 'Studio_Infinity_Cyclorama': center distance=94.9112, vertex ratio=0.0285
-
-Remaining mesh objects (2): ['reVAmped_character_female_8k', 'Studio_Infinity_Cyclorama']
-
-Processing mesh object 'reVAmped_character_female_8k':
-  Current material slots: ['M_Skin_PeachPorcelain_8K']
-  Cleaned: object 'reVAmped_character_female_8k' now exclusively uses 'DewySatinPorcelain_8K' on all 29963 polygons.
-
-Processing mesh object 'Studio_Infinity_Cyclorama':
-  Current material slots: ['M_Cinema_ObsidianSilk_Cyclorama']
-  Cleaned: object 'Studio_Infinity_Cyclorama' now exclusively uses 'DewySatinPorcelain_8K' on all 768 polygons.
+Assigned DewySatinPorcelain_8K to 100% of character polygons (29963).
 Packed texture: skin_basecolor.png
 Packed texture: skin_roughness.png
 Packed texture: skin_normal.png
