@@ -67,13 +67,15 @@ jobs:
             echo "BLENDER=/snap/bin/blender" >> "$GITHUB_ENV"
           fi
 
-      - name: Download Chibi_pretty.blend from release v0.0.0.0.0.0-s0
+      - name: Download Chibi_pretty.blend and textures from release v0.0.0.0.0.0-s0
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           gh release download "v0.0.0.0.0.0-s0" -p "Chibi_pretty.blend"
-          ls -lh Chibi_pretty.blend
+          gh release download "v0.0.0.0.0.0-s0" -p "Chibi_pretty_8K_Textures_Lossless.zip"
+          unzip -q -o Chibi_pretty_8K_Textures_Lossless.zip -d textures/
+          ls -lh Chibi_pretty.blend textures/
 
       - name: Build anime eyes and render previews
         run: |

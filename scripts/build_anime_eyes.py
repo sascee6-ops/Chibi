@@ -11,7 +11,7 @@ from pathlib import Path
 import bpy
 import bmesh
 import numpy as np
-from mathutils import Vector, Euler, Matrix
+from mathutils import Vector, Matrix
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,32 +31,26 @@ def set_input(node, name: str, value) -> None:
         node.inputs[name].default_value = value
 
 
-def create_eyeball_mesh(name: str, center: Vector, radius: float, is_left: bool) -> bpy.types.Object:
-    """Create a curved anime eyeball surface (sclera + iris plane) with smooth normals."""
+def create_eyeball_mesh(name: str, center: Vector, radius_x: float, radius_z: float, depth: float, is_left: bool) -> bpy.types.Object:
+    """Create a curved anime eyeball surface (sclera + iris plane) precisely fitted to eye socket."""
     mesh = bpy.data.meshes.new(name)
     bm = bmesh.new()
 
-    # Generate curved grid dome for eyeball
     rows, cols = 16, 20
-    # Angular span across socket
-    x_span = math.radians(65.0)
-    z_span = math.radians(55.0)
+    x_angles = np.linspace(-math.radians(38), math.radians(38), cols)
+    z_angles = np.linspace(-math.radians(32), math.radians(32), rows)
 
     grid_verts = []
     sign = 1.0 if is_left else -1.0
 
-    for r in range(rows):
+    for r, phi in enumerate(z_angles):
         row_verts = []
-        v_frac = r / (rows - 1)
-        phi = (v_frac - 0.5) * z_span
-        for c in range(cols):
-            u_frac = c / (cols - 1)
-            theta = (u_frac - 0.5) * x_span
-
-            # Spherical projection facing -Y
-            x = center.x + radius * math.sin(theta)
-            y = center.y - radius * math.cos(theta) * math.cos(phi) + radius * 0.85
-            z = center.z + radius * math.sin(phi)
+        for c, theta in enumerate(x_angles):
+            # Curved convex surface bulging slightly forward (-Y)
+            cos_factor = math.cos(theta) * math.cos(phi)
+            x = center.x + radius_x * math.sin(theta)
+            y = center.y - depth * (cos_factor - 0.2)
+            z = center.z + radius_z * math.sin(phi)
 
             vert = bm.verts.new((x, y, z))
             row_verts.append(vert)
@@ -75,7 +69,6 @@ def create_eyeball_mesh(name: str, center: Vector, radius: float, is_left: bool)
     uv_layer = bm.loops.layers.uv.new("UVMap")
     for r in range(rows - 1):
         for c in range(cols - 1):
-            # Map U, V cleanly across [0, 1]
             u0 = c / (cols - 1)
             u1 = (c + 1) / (cols - 1)
             v0 = r / (rows - 1)
@@ -83,7 +76,6 @@ def create_eyeball_mesh(name: str, center: Vector, radius: float, is_left: bool)
             if not is_left:
                 u0, u1 = 1.0 - u0, 1.0 - u1
 
-            # Match face loop order
             f = bm.faces.get([grid_verts[r][c], grid_verts[r][c + 1], grid_verts[r + 1][c + 1], grid_verts[r + 1][c]])
             if f:
                 f.loops[0][uv_layer].uv = (u0, v0)
@@ -100,36 +92,35 @@ def create_eyeball_mesh(name: str, center: Vector, radius: float, is_left: bool)
     return obj
 
 
-def create_feathered_lash_mesh(name: str, center: Vector, radius: float, is_left: bool) -> bpy.types.Object:
-    """Create stylized feathered white eyelashes with distinct spiky tufts and curvature."""
+def create_feathered_lash_mesh(name: str, center: Vector, radius_x: float, radius_z: float, is_left: bool) -> bpy.types.Object:
+    """Create stylized layered feathered white eyelashes with spiky curved tufts."""
     mesh = bpy.data.meshes.new(name)
     bm = bmesh.new()
 
     sign = 1.0 if is_left else -1.0
-    num_spikes = 7
-    # Arc along upper eyelid
-    arc_angles = np.linspace(-math.radians(35), math.radians(40), num_spikes)
+    num_spikes = 8
+    arc_angles = np.linspace(-math.radians(40), math.radians(45), num_spikes)
     if not is_left:
         arc_angles = -arc_angles
 
-    # Base curve along the lid
     for i, angle in enumerate(arc_angles):
-        # Base on eyelid rim
-        bx = center.x + sign * (radius * 1.05 * math.sin(angle))
-        by = center.y - radius * 0.95 * math.cos(angle) + radius * 0.82
-        bz = center.z + radius * 0.45 + (1.0 - (i / num_spikes - 0.5)**2) * 0.35
+        # Base along upper eyelid margin
+        bx = center.x + radius_x * math.sin(angle)
+        by = center.y - 0.25 - 0.15 * math.cos(angle)
+        bz = center.z + radius_z * 0.75 + math.cos(angle) * 0.25
 
-        # Tapering spike tip sweeping outward and upward
-        tip_length = 0.55 + 0.45 * (i / num_spikes)
-        tx = bx + sign * (0.35 + 0.25 * i)
-        ty = by - 0.15 - 0.1 * math.sin(angle)
-        tz = bz + tip_length * (0.4 + 0.6 * math.sin(abs(angle) + 0.3))
+        # Spike tip sweeping outward and slightly upward
+        tip_length = 0.40 + 0.35 * (i / num_spikes)
+        tx = bx + sign * (0.20 + 0.15 * i)
+        ty = by - 0.12 - 0.08 * math.sin(abs(angle))
+        tz = bz + tip_length * (0.35 + 0.45 * math.sin(abs(angle) + 0.2))
 
-        # Build triangular/quad feather tuft
-        v_base1 = bm.verts.new((bx - 0.15 * sign, by, bz - 0.08))
-        v_base2 = bm.verts.new((bx + 0.15 * sign, by, bz - 0.08))
-        v_mid1  = bm.verts.new((bx * 0.6 + tx * 0.4 - 0.08 * sign, by * 0.6 + ty * 0.4, bz * 0.6 + tz * 0.4))
-        v_mid2  = bm.verts.new((bx * 0.6 + tx * 0.4 + 0.08 * sign, by * 0.6 + ty * 0.4, bz * 0.6 + tz * 0.4))
+        # Quad base and triangular tip for feathered spike
+        w_base = 0.12
+        v_base1 = bm.verts.new((bx - w_base * sign, by, bz - 0.05))
+        v_base2 = bm.verts.new((bx + w_base * sign, by, bz - 0.05))
+        v_mid1  = bm.verts.new((bx * 0.5 + tx * 0.5 - 0.06 * sign, by * 0.5 + ty * 0.5, bz * 0.5 + tz * 0.5))
+        v_mid2  = bm.verts.new((bx * 0.5 + tx * 0.5 + 0.06 * sign, by * 0.5 + ty * 0.5, bz * 0.5 + tz * 0.5))
         v_tip   = bm.verts.new((tx, ty, tz))
 
         bm.faces.new((v_base1, v_base2, v_mid2, v_mid1))
@@ -145,7 +136,7 @@ def create_feathered_lash_mesh(name: str, center: Vector, radius: float, is_left
 
 
 def setup_blink_shape_keys(obj: bpy.types.Object, is_eyelash: bool, center: Vector) -> None:
-    """Create Basis and Blink shape keys with correct smooth downward arc rotation."""
+    """Create Basis and Blink shape keys with smooth arc eyelid rotation."""
     if not obj.data.shape_keys:
         obj.shape_key_add(name="Basis")
 
@@ -153,42 +144,36 @@ def setup_blink_shape_keys(obj: bpy.types.Object, is_eyelash: bool, center: Vect
     blink_l_key = obj.shape_key_add(name="EyeBlink_L")
     blink_r_key = obj.shape_key_add(name="EyeBlink_R")
 
-    # Deform vertices for closed eye state
     bm = bmesh.new()
     bm.from_mesh(obj.data)
 
-    delta_z = -1.15 if is_eyelash else -0.75
+    delta_z = -0.85 if is_eyelash else -0.55
     for vert in bm.verts:
-        # Distance from eyelid bottom
-        dz = vert.co.z - center.z
         if is_eyelash:
-            # Upper eyelashes slide down over the eye and fan outward/downward
+            # Upper eyelashes slide downward and forward over the eyeball curve
             vert.co.z += delta_z
-            vert.co.y += 0.08  # glide forward over eyeball curve
+            vert.co.y += 0.06
         else:
-            # Eyelid skin covers the pupil
+            dz = vert.co.z - center.z
             if dz > 0:
-                vert.co.z += delta_z * (dz / 1.0)
-                vert.co.y += 0.05
+                vert.co.z += delta_z * (dz / 0.8)
+                vert.co.y += 0.04
 
     bm.to_mesh(obj.data)
-    # Store coordinates into shape key
     for idx, vert in enumerate(bm.verts):
         blink_key.data[idx].co = vert.co
         blink_l_key.data[idx].co = vert.co
         blink_r_key.data[idx].co = vert.co
 
     bm.free()
-    # Reset base mesh coordinates back to Basis
     obj.data.update()
 
 
 def build_eye_material(tex_path: Path, is_eyelash=False) -> bpy.types.Material:
     """Build Cycles AgX material with glowing amber iris or feathered white lashes."""
-    mat_name = "M_AnimeEye_FeatherLash" if is_eyelash else "M_AnimeEye_Iris"
+    mat_name = "M_AnimeEye_FeatherLash" if is_eyelash else f"M_AnimeEye_{tex_path.stem}"
     mat = bpy.data.materials.new(mat_name)
     mat.use_nodes = True
-    mat.blend_method = "BLEND" if hasattr(mat, "blend_method") else None
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
     nodes.clear()
@@ -201,21 +186,19 @@ def build_eye_material(tex_path: Path, is_eyelash=False) -> bpy.types.Material:
     links.new(bsdf.outputs["BSDF"], out_node.inputs["Surface"])
 
     if is_eyelash:
-        # Pure shimmering white / silver feather lashes
+        # Silvery white feathered eyelashes
         set_input(bsdf, "Base Color", (0.96, 0.96, 0.98, 1.0))
         set_input(bsdf, "Roughness", 0.35)
-        set_input(bsdf, "Sheen Weight", 0.65)
+        set_input(bsdf, "Sheen Weight", 0.70)
         set_input(bsdf, "Sheen Tint", (1.0, 1.0, 1.0, 1.0))
-        set_input(bsdf, "Coat Weight", 0.40)
+        set_input(bsdf, "Coat Weight", 0.35)
         set_input(bsdf, "Coat Roughness", 0.15)
-        set_input(bsdf, "Subsurface Weight", 0.25)
-        set_input(bsdf, "Subsurface Radius", (1.0, 1.0, 1.0))
     else:
-        # Amber luminous anime eye iris
-        set_input(bsdf, "Roughness", 0.08)
+        # Glowing amber anime iris
+        set_input(bsdf, "Roughness", 0.06)
         set_input(bsdf, "Specular IOR Level", 0.65)
-        set_input(bsdf, "Coat Weight", 0.85)
-        set_input(bsdf, "Coat Roughness", 0.05)
+        set_input(bsdf, "Coat Weight", 0.90)
+        set_input(bsdf, "Coat Roughness", 0.04)
         set_input(bsdf, "Subsurface Weight", 0.15)
         set_input(bsdf, "Subsurface Radius", (1.8, 1.0, 0.5))
 
@@ -273,39 +256,49 @@ def main() -> None:
     if blend_path.exists():
         bpy.ops.wm.open_mainfile(filepath=str(blend_path))
     else:
-        print("Starting with empty scene...")
+        print("Blend file not found, starting fresh scene...")
         bpy.ops.wm.read_factory_settings(use_empty=True)
 
     scene = bpy.context.scene
 
+    # Setup clean neutral studio world (warm soft ivory-beige)
+    world = bpy.data.worlds.new("StudioWorld")
+    world.use_nodes = True
+    bg_node = world.node_tree.nodes.get("Background")
+    if bg_node:
+        bg_node.inputs[0].default_value = (0.94, 0.90, 0.88, 1.0)
+        bg_node.inputs[1].default_value = 1.0
+    scene.world = world
+
     # Textures
     tex_eye_l = tex_dir / "eye_open_L.png"
     tex_eye_r = tex_dir / "eye_open_R.png"
-    tex_iris = tex_dir / "eye_iris.png"
     tex_closed = tex_dir / "eye_closed.png"
 
-    # Coordinates measured on head
-    # Left eye: (+2.45, -6.05, 65.95)
-    # Right eye: (-2.45, -6.05, 65.95)
-    eye_radius = 1.35
-    pos_l = Vector((2.45, -6.05, 65.95))
-    pos_r = Vector((-2.45, -6.05, 65.95))
+    # Anatomical eye placement on Chibi face:
+    # Nose tip is at (0.1, -7.29, 63.9), cheeks at (+/-3.15, -6.1, 63.8)
+    # Left eye center: X = +1.55, Y = -6.22, Z = 65.20
+    # Right eye center: X = -1.55, Y = -6.22, Z = 65.20
+    eye_radius_x = 0.95
+    eye_radius_z = 0.80
+    eye_depth = 0.25
+    pos_l = Vector((1.55, -6.22, 65.20))
+    pos_r = Vector((-1.55, -6.22, 65.20))
 
-    # Materials
     mat_eye_l = build_eye_material(tex_eye_l)
     mat_eye_r = build_eye_material(tex_eye_r)
     mat_lash = build_eye_material(tex_closed, is_eyelash=True)
 
-    print("Building left and right eye meshes...")
-    eyeball_l = create_eyeball_mesh("AnimeEye_L", pos_l, eye_radius, is_left=True)
-    eyeball_r = create_eyeball_mesh("AnimeEye_R", pos_r, eye_radius, is_left=False)
+    print("Building left and right eye assemblies...")
+    eyeball_l = create_eyeball_mesh("AnimeEye_L", pos_l, eye_radius_x, eye_radius_z, eye_depth, is_left=True)
+    eyeball_r = create_eyeball_mesh("AnimeEye_R", pos_r, eye_radius_x, eye_radius_z, eye_depth, is_left=False)
 
     eyeball_l.data.materials.append(mat_eye_l)
     eyeball_r.data.materials.append(mat_eye_r)
 
-    print("Building feathered white eyelash geometry...")
-    lash_l = create_feathered_lash_mesh("FeatherLash_Upper_L", pos_l, eye_radius, is_left=True)
-    lash_r = create_feathered_lash_mesh("FeatherLash_Upper_R", pos_r, eye_radius, is_left=False)
+    print("Building feathered white eyelashes...")
+    lash_l = create_feathered_lash_mesh("FeatherLash_Upper_L", pos_l, eye_radius_x, eye_radius_z, is_left=True)
+    lash_r = create_feathered_lash_mesh("FeatherLash_Upper_R", pos_r, eye_radius_x, eye_radius_z, is_left=False)
 
     lash_l.data.materials.append(mat_lash)
     lash_r.data.materials.append(mat_lash)
@@ -340,21 +333,21 @@ def main() -> None:
     )
 
     # Studio Lighting & Camera for Renders
-    face_center = Vector((0.0, -6.1, 65.5))
+    face_center = Vector((0.0, -6.1, 65.0))
     cam_data = bpy.data.cameras.new("FacePreviewCam")
     cam_obj = bpy.data.objects.new("FacePreviewCam", cam_data)
     scene.collection.objects.link(cam_obj)
     scene.camera = cam_obj
 
-    # Soft studio lights
-    add_light("EyeKey", (-15.0, -30.0, 75.0), 12000, 20.0, (1.0, 0.96, 0.92))
-    add_light("EyeFill", (18.0, -25.0, 68.0), 6000, 25.0, (0.95, 0.98, 1.0))
-    add_light("EyeRim", (0.0, 25.0, 80.0), 9000, 20.0, (1.0, 0.90, 0.90))
+    # Soft 3-point portrait lighting
+    add_light("EyeKey", (-15.0, -28.0, 75.0), 10000, 20.0, (1.0, 0.96, 0.92))
+    add_light("EyeFill", (18.0, -22.0, 68.0), 5000, 25.0, (0.95, 0.98, 1.0))
+    add_light("EyeRim", (0.0, 22.0, 78.0), 8000, 20.0, (1.0, 0.90, 0.90))
 
-    # Closeup framing
-    cam_obj.location = (0.0, -22.0, 66.2)
+    # Balanced portrait framing
+    cam_obj.location = (0.0, -18.0, 65.2)
     track_camera(cam_obj, face_center)
-    cam_data.lens = 85.0  # 85mm portrait lens for flattering anime proportions
+    cam_data.lens = 65.0
     bpy.context.view_layer.update()
 
     scene.render.engine = "CYCLES"
