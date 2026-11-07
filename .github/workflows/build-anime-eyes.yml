@@ -1,0 +1,98 @@
+name: Build Stylized Anime Eyes with Blinking Morph Targets
+
+on:
+  push:
+    branches:
+      - "arena/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-eyes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies for Blender
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            curl xz-utils xvfb libdbus-1-3 libegl1 libgl1 libglx-mesa0 \
+            libx11-6 libxext6 libxfixes3 libxi6 libxkbcommon0 libxrender1 libxxf86vm1
+
+      - name: Download official Blender 4.2.0
+        run: |
+          set -euo pipefail
+          BLENDER_VERSION="4.2.0"
+          BLENDER_DIR="$RUNNER_TEMP/blender-$BLENDER_VERSION"
+          ARCHIVE="$RUNNER_TEMP/blender-$BLENDER_VERSION-linux-x64.tar.xz"
+          URL="https://download.blender.org/release/Blender4.2/blender-${BLENDER_VERSION}-linux-x64.tar.xz"
+          mkdir -p "$BLENDER_DIR"
+          curl --fail --location --retry 3 "$URL" --output "$ARCHIVE"
+          tar -xJf "$ARCHIVE" --strip-components=1 -C "$BLENDER_DIR"
+          echo "BLENDER=$BLENDER_DIR/blender" >> "$GITHUB_ENV"
+          xvfb-run -a "$BLENDER_DIR/blender" --version
+
+      - name: Download Chibi_pretty.blend from release v0.0.0.0.0.0-s0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "v0.0.0.0.0.0-s0" -p "Chibi_pretty.blend"
+          ls -lh Chibi_pretty.blend
+
+      - name: Build anime eyes and render previews
+        run: |
+          set -euo pipefail
+          xvfb-run -a -s "-screen 0 1024x768x24" "$BLENDER" \
+            --background \
+            --factory-startup \
+            -noaudio \
+            --python scripts/build_anime_eyes.py -- \
+            --blend "Chibi_pretty.blend" \
+            --out "Chibi_pretty_eyes.blend" \
+            --out-glb "Chibi_pretty_eyes.glb" \
+            --textures "textures" \
+            --preview-dir "preview" \
+            --render-samples 64
+
+          ls -lh preview/
+          ls -lh Chibi_pretty_eyes.*
+
+      - name: Commit and push previews to branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add preview/ textures/
+          if git diff --staged --quiet; then
+            echo "No preview changes to commit."
+          else
+            git commit -m "Add anime eyes and blink previews [skip ci]"
+            git push origin "HEAD:${{ github.ref }}"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chibi-pretty-eyes
+          path: |
+            Chibi_pretty_eyes.blend
+            Chibi_pretty_eyes.glb
+            preview/chibi_eyes_open.png
+            preview/chibi_eyes_blink.png
+          if-no-files-found: warn
