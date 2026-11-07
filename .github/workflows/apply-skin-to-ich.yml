@@ -67,20 +67,22 @@ jobs:
           ls -lh textures/
           ls -lh ICHxTenebra*
 
-      - name: Apply 8K skin textures and material in Blender
+      - name: Diagnose and fix overlapping geometry & apply 8K skin textures
         run: |
           set -euo pipefail
           xvfb-run -a -s "-screen 0 1024x768x24" "$BLENDER" \
             --background \
             --factory-startup \
             -noaudio \
-            --python scripts/apply_skin_to_ich.py -- \
+            --python scripts/diagnose_and_fix_ich.py -- \
             --blend "ICHxTenebra.v0.0.0.0.0.0-s0.blend" \
             --textures "textures" \
             --out "ICHxTenebra_with_skin.blend" \
+            --report "preview/ich_diagnostics.txt" \
             --render-previews \
             --out-dir .
 
+          cat preview/ich_diagnostics.txt || true
           ls -lh preview/
 
       - name: Commit and push preview to branch
@@ -92,7 +94,7 @@ jobs:
           if git diff --staged --quiet; then
             echo "No preview changes to commit."
           else
-            git commit -m "Update ICHxTenebra preview in branch [skip ci]"
+            git commit -m "Update fixed ICHxTenebra previews without black spots [skip ci]"
             git push origin "HEAD:${{ github.ref }}"
           fi
 

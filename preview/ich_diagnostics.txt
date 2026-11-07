@@ -1,0 +1,8 @@
+=== Opening Original Blend File: /home/runner/work/Chibi/Chibi/ICHxTenebra.v0.0.0.0.0.0-s0.blend ===
+Target character mesh: 'reVAmped_character_female_8k'
+Restored Studio_Infinity_Cyclorama backdrop material.
+Painting skin colors and roughness layers...
+Painted skin stats: {'top_light': 7581, 'cool_shade': 7233, 'face_glow': 488, 'forehead_glow': 71, 'cheek_halo': 350, 'cheek_left': 95, 'cheek_right': 95, 'eyelids': 16, 'nose': 0, 'lips': 0, 'lip_core': 0, 'beauty_mark': 0, 'rough_face': 684, 'rough_cheeks': 210, 'rough_eyelids': 22, 'rough_nose': 0, 'rough_lips': 0, 'rough_clavicle': 841, 'hands': 1988, 'knees': 0, 'feet': 4042, 'rough_hands': 2426, 'freckles': 79}
+Building Dewy Satin Porcelain skin material in Object Space...
+Applied material 'DewySatinPorcelain_8K' to 'reVAmped_character_female_8k'.
+Saving fixed blend file to: /home/runner/work/Chibi/Chibi/ICHxTenebra_with_skin.blend
