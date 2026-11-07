@@ -13,8 +13,6 @@
 
 ![Chibi Pretty Full View](preview/Chibi_pretty_front.png)
 
-![ICHxTenebra Skin Preview](preview/ICHxTenebra_preview.png)
-
 ---
 
 ## Официальный релиз: `v0.0.0.0.0.0-s0`
@@ -27,8 +25,6 @@
 
 | Файл | Описание | Формат | Ссылка |
 | :--- | :--- | :---: | :---: |
-| **`ICHxTenebra_with_skin.blend`** | Сцена ICHxTenebra с наложенным 8K-шейдером кожи Dewy Satin Porcelain и упакованными текстурами | Blender Scene | [Скачать](https://github.com/sascee6-ops/Chibi/releases/download/v0.0.0.0.0.0-s0/ICHxTenebra_with_skin.blend) |
-| **`preview_ICH_skin.png`** | Превью рендера сцены ICHxTenebra с наложенным шейдером кожи | Image PNG | [Скачать](https://github.com/sascee6-ops/Chibi/releases/download/v0.0.0.0.0.0-s0/preview_ICH_skin.png) |
 | **`Chibi_pretty_8K_Lossless.glb`** | Полная модель с внедрёнными несжатыми 8K PNG текстурами (Base Color, Roughness, Normal) | glTF 2.0 Binary | [Скачать](https://github.com/sascee6-ops/Chibi/releases/download/v0.0.0.0.0.0-s0/Chibi_pretty_8K_Lossless.glb) |
 | **`Chibi_pretty.blend`** | Продакшн-сцена Blender 4.2.0 с упакованными 8K PNG мастерами и Cycles AgX светом | Blender Scene | [Скачать](https://github.com/sascee6-ops/Chibi/releases/download/v0.0.0.0.0.0-s0/Chibi_pretty.blend) |
 | **`Chibi_pretty.stl`** | Монолитная замкнутая геометрия для высокоточной 3D-печати (837 652 полигона) | Binary STL | [Скачать](https://github.com/sascee6-ops/Chibi/releases/download/v0.0.0.0.0.0-s0/Chibi_pretty.stl) |
