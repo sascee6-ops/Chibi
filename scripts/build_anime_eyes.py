@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 import bpy
 import bmesh
+import numpy as np
 from mathutils import Vector, Euler, Matrix
 
 
