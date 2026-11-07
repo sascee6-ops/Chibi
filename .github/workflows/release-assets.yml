@@ -154,3 +154,19 @@ jobs:
           set -euo pipefail
           TAG="${{ inputs.release_tag || 'v0.0.0.0.0.0-s0' }}"
           gh release view "$TAG"
+
+      - name: Upload v0.0.0.0.0.0-s1 assets if present
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -f "Chibi_s1_fused.stl" ]; then
+            echo "Uploading assets to release v0.0.0.0.0.0-s1..."
+            gh release upload "v0.0.0.0.0.0-s1" \
+              Chibi_s1_fused.stl \
+              Chibi_hair.stl \
+              preview/chibi_v0_s1_kitsune_porcelain.png \
+              preview/chibi_s1_preview.png \
+              --clobber
+            gh release view "v0.0.0.0.0.0-s1"
+          fi
