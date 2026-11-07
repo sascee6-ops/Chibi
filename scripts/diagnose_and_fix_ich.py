@@ -19,6 +19,7 @@ def parse_args() -> argparse.Namespace:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     p = argparse.ArgumentParser()
     p.add_argument("--blend", default="ICHxTenebra.v0.0.0.0.0.0-s0.blend")
+    p.add_argument("--textures", default="textures")
     p.add_argument("--out", default="ICHxTenebra_with_skin.blend")
     p.add_argument("--report", default="preview/ich_diagnostics.txt")
     p.add_argument("--render-previews", action="store_true")
