@@ -1,0 +1,106 @@
+name: Apply Dewy Satin Porcelain skin to ICHxTenebra
+
+on:
+  push:
+    branches:
+      - "arena/**"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag"
+        required: true
+        default: "v0.0.0.0.0.0-s0"
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  apply-skin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies for Blender
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            curl xz-utils xvfb libdbus-1-3 libegl1 libgl1 libglx-mesa0 \
+            libx11-6 libxext6 libxfixes3 libxi6 libxkbcommon0 libxrender1 libxxf86vm1
+
+      - name: Download official Blender 4.2.0
+        run: |
+          set -euo pipefail
+          BLENDER_VERSION="4.2.0"
+          BLENDER_DIR="$RUNNER_TEMP/blender-$BLENDER_VERSION"
+          ARCHIVE="$RUNNER_TEMP/blender-$BLENDER_VERSION-linux-x64.tar.xz"
+          URL="https://download.blender.org/release/Blender4.2/blender-${BLENDER_VERSION}-linux-x64.tar.xz"
+          mkdir -p "$BLENDER_DIR"
+          curl --fail --location --retry 3 "$URL" --output "$ARCHIVE"
+          tar -xJf "$ARCHIVE" --strip-components=1 -C "$BLENDER_DIR"
+          echo "BLENDER=$BLENDER_DIR/blender" >> "$GITHUB_ENV"
+          xvfb-run -a "$BLENDER_DIR/blender" --version
+
+      - name: Download release assets from v0.0.0.0.0.0-s0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.release_tag || 'v0.0.0.0.0.0-s0' }}"
+          echo "Downloading assets from release $TAG..."
+          gh release download "$TAG" -p "ICHxTenebra.v0.0.0.0.0.0-s0.blend"
+          gh release download "$TAG" -p "Chibi_pretty_8K_Textures_Lossless.zip"
+          mkdir -p textures
+          unzip -q Chibi_pretty_8K_Textures_Lossless.zip -d textures/
+          ls -lh textures/
+          ls -lh ICHxTenebra*
+
+      - name: Apply 8K skin textures and material in Blender
+        run: |
+          set -euo pipefail
+          xvfb-run -a -s "-screen 0 1024x768x24" "$BLENDER" \
+            --background \
+            --factory-startup \
+            -noaudio \
+            --python scripts/apply_skin_to_ich.py -- \
+            --blend "ICHxTenebra.v0.0.0.0.0.0-s0.blend" \
+            --textures "textures" \
+            --out "ICHxTenebra_with_skin.blend" \
+            --render-previews \
+            --out-dir .
+
+          ls -lh ICHxTenebra_with_skin.blend preview_ICH_skin.png || ls -lh ICHxTenebra*
+
+      - name: Upload updated blend to release v0.0.0.0.0.0-s0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.release_tag || 'v0.0.0.0.0.0-s0' }}"
+          echo "Uploading ICHxTenebra_with_skin.blend to release $TAG..."
+          gh release upload "$TAG" \
+            ICHxTenebra_with_skin.blend \
+            --clobber
+          if [ -f "preview_ICH_skin.png" ]; then
+            gh release upload "$TAG" preview_ICH_skin.png --clobber
+          fi
+          gh release view "$TAG"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ich-with-skin
+          path: |
+            ICHxTenebra_with_skin.blend
+            preview_ICH_skin.png
+          if-no-files-found: warn
