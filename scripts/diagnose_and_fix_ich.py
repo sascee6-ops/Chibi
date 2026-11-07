@@ -1,4 +1,4 @@
-"""Diagnose and fix overlapping / black z-fighting geometry in ICHxTenebra scene."""
+"""Comprehensive diagnosis and fix for all black spots / overlapping geometry in ICHxTenebra."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 import bpy
+import bmesh
 from mathutils import Vector
 
 
@@ -13,9 +14,9 @@ def parse_args() -> argparse.Namespace:
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     p = argparse.ArgumentParser()
     p.add_argument("--blend", default="ICHxTenebra.v0.0.0.0.0.0-s0.blend")
-    p.add_argument("--out", default="ICHxTenebra_fixed.blend")
+    p.add_argument("--out", default="ICHxTenebra_with_skin.blend")
     p.add_argument("--textures", default="textures")
-    p.add_argument("--report", default="ich_diagnostics.txt")
+    p.add_argument("--report", default="preview/ich_diagnostics.txt")
     p.add_argument("--render-previews", action="store_true")
     p.add_argument("--out-dir", default=".")
     return p.parse_args(argv)
@@ -66,52 +67,125 @@ def main() -> None:
         print(msg)
         report_lines.append(msg)
 
-    log(f"=== Diagnosing Blend File: {blend_path} ===")
+    log(f"=== Opening Original Blend File: {blend_path} ===")
     bpy.ops.wm.open_mainfile(filepath=str(blend_path))
 
-    log(f"Blender version: {bpy.app.version_string}")
-    log(f"Total objects: {len(bpy.data.objects)}")
-    log(f"Total materials: {len(bpy.data.materials)}")
+    scene = bpy.context.scene
+    log(f"Scene name: {scene.name}")
+    log(f"View layers ({len(scene.view_layers)}): {[vl.name for vl in scene.view_layers]}")
+    log(f"Collections ({len(bpy.data.collections)}): {[c.name for c in bpy.data.collections]}")
 
-    mesh_objects = [o for o in bpy.data.objects if o.type == "MESH"]
-    log(f"Mesh objects count: {len(mesh_objects)}")
+    log(f"\n=== Listing ALL {len(bpy.data.objects)} objects in bpy.data.objects ===")
+    for o in bpy.data.objects:
+        inst_info = f", instance_type={o.instance_type}" if hasattr(o, "instance_type") else ""
+        if hasattr(o, "instance_collection") and o.instance_collection:
+            inst_info += f", inst_collection='{o.instance_collection.name}'"
+        log(f"  Object: '{o.name}' (type={o.type}{inst_info}, hide_render={o.hide_render}, hide_viewport={o.hide_get()})")
 
-    for i, obj in enumerate(mesh_objects):
-        log(f"\n--- Mesh Object #{i+1}: '{obj.name}' ---")
-        log(f"  Visible in viewport: {not obj.hide_get()}, Hide render: {obj.hide_render}")
-        log(f"  Vertices: {len(obj.data.vertices)}, Polygons: {len(obj.data.polygons)}, Edges: {len(obj.data.edges)}")
-        bbox = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
-        center = sum(bbox, Vector()) / 8.0
-        dims = (
-            max(v.x for v in bbox) - min(v.x for v in bbox),
-            max(v.y for v in bbox) - min(v.y for v in bbox),
-            max(v.z for v in bbox) - min(v.z for v in bbox),
-        )
-        log(f"  World center: ({center.x:.3f}, {center.y:.3f}, {center.z:.3f})")
-        log(f"  Dimensions: ({dims[0]:.3f}, {dims[1]:.3f}, {dims[2]:.3f})")
-        log(f"  Modifiers ({len(obj.modifiers)}): {[m.name + ':' + m.type for m in obj.modifiers]}")
-        log(f"  Material slots ({len(obj.material_slots)}):")
-        for s_idx, slot in enumerate(obj.material_slots):
-            m_name = slot.material.name if slot.material else "<None>"
-            # Count polygons using this slot
-            poly_count = sum(1 for p in obj.data.polygons if p.material_index == s_idx)
-            log(f"    Slot {s_idx}: '{m_name}' -> {poly_count} polygons")
-        log(f"  UV layers: {[uv.name for uv in obj.data.uv_layers]}")
+    # Step 1: Remove any collection instances / empties duplicating geometry
+    removed_instances = 0
+    for o in list(bpy.data.objects):
+        if o.type == "EMPTY" and hasattr(o, "instance_type") and o.instance_type in ["COLLECTION", "OBJECT"]:
+            log(f"REMOVING collection instance Empty: '{o.name}' (instanced {o.instance_collection})")
+            bpy.data.objects.remove(o, do_unlink=True)
+            removed_instances += 1
+    log(f"Removed {removed_instances} collection instances.")
 
-    # Inspect all materials in detail
-    log("\n=== Materials Detail ===")
-    for mat in bpy.data.materials:
-        log(f"Material: '{mat.name}', use_nodes={mat.use_nodes}")
-        if mat.use_nodes and mat.node_tree:
-            for node in mat.node_tree.nodes:
-                if node.type == "BSDF_PRINCIPLED":
-                    base_col = node.inputs["Base Color"].default_value[:] if "Base Color" in node.inputs else "?"
-                    rough = node.inputs["Roughness"].default_value if "Roughness" in node.inputs else "?"
-                    log(f"  PrincipledBSDF: BaseColor={base_col}, Roughness={rough}")
-                elif node.type == "TEX_IMAGE" and node.image:
-                    log(f"  ImageTexture: '{node.image.name}' (filepath={node.image.filepath})")
+    # Step 2: Inspect character mesh in detail
+    char_obj = bpy.data.objects.get("reVAmped_character_female_8k")
+    if not char_obj:
+        for o in bpy.data.objects:
+            if o.type == "MESH" and "cyclorama" not in o.name.lower():
+                char_obj = o
+                break
 
-    # Locate skin textures
+    log(f"\nTarget character mesh: '{char_obj.name}'")
+    log(f"Modifiers: {[m.name + '(' + m.type + ')' for m in char_obj.modifiers]}")
+    log(f"Shape keys: {char_obj.data.shape_keys.key_blocks.keys() if char_obj.data.shape_keys else 'None'}")
+    log(f"Vertex groups count: {len(char_obj.vertex_groups)}")
+    log(f"UV layers: {[uv.name for uv in char_obj.data.uv_layers]}")
+    log(f"Color attributes / vertex colors: {[ca.name for ca in char_obj.data.color_attributes] if hasattr(char_obj.data, 'color_attributes') else 'None'}")
+
+    # Inspect mesh connectivity using bmesh: find loose components
+    bm = bmesh.new()
+    bm.from_mesh(char_obj.data)
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+
+    # Find connected components of faces
+    visited_faces = set()
+    components = []
+    for face in bm.faces:
+        if face in visited_faces:
+            continue
+        comp = []
+        queue = [face]
+        visited_faces.add(face)
+        while queue:
+            f = queue.pop()
+            comp.append(f)
+            for edge in f.edges:
+                for linked in edge.link_faces:
+                    if linked not in visited_faces:
+                        visited_faces.add(linked)
+                        queue.append(linked)
+        components.append(comp)
+
+    log(f"\nMesh connectivity: found {len(components)} connected polygon islands / shells in '{char_obj.name}':")
+    for idx, comp in enumerate(components):
+        bbox_min = Vector((min(f.calc_center_median().x for f in comp), min(f.calc_center_median().y for f in comp), min(f.calc_center_median().z for f in comp)))
+        bbox_max = Vector((max(f.calc_center_median().x for f in comp), max(f.calc_center_median().y for f in comp), max(f.calc_center_median().z for f in comp)))
+        log(f"  Island #{idx+1}: {len(comp)} faces, bbox min={bbox_min}, max={bbox_max}")
+
+    # If there are multiple islands: is one island a duplicate / suit / inner shell?
+    # If two islands span the whole body height (e.g. from feet z~0 to head z~77), one is an overlapping duplicate shell!
+    if len(components) > 1:
+        log("\nAnalyzing multi-island structure for duplicate / overlapping coplanar shells...")
+        body_shells = []
+        for idx, comp in enumerate(components):
+            z_min = min(f.calc_center_median().z for f in comp)
+            z_max = max(f.calc_center_median().z for f in comp)
+            z_span = z_max - z_min
+            log(f"  Island #{idx+1}: z_span={z_span:.2f} (from {z_min:.2f} to {z_max:.2f}), faces={len(comp)}")
+            if z_span > 50.0:  # Spans almost full body
+                body_shells.append((idx, comp, len(comp)))
+
+        if len(body_shells) > 1:
+            log(f"CRITICAL: Found {len(body_shells)} full-body shells inside the same mesh! This is the source of Z-fighting!")
+            # Sort by face count descending, keep the primary shell (highest face count / outermost)
+            body_shells.sort(key=lambda x: x[2], reverse=True)
+            log(f"Keeping primary shell #{body_shells[0][0]+1} with {body_shells[0][2]} faces.")
+            # Delete faces of the secondary duplicate shells
+            for shell_idx, comp, f_count in body_shells[1:]:
+                log(f"Deleting secondary duplicate shell #{shell_idx+1} with {f_count} faces...")
+                for f in comp:
+                    if f.is_valid:
+                        bm.faces.remove(f)
+
+    # Clean unused vertices / edges
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+    bm.to_mesh(char_obj.data)
+    bm.free()
+    char_obj.data.update()
+
+    log(f"\nAfter shell cleanup: {len(char_obj.data.vertices)} vertices, {len(char_obj.data.polygons)} polygons.")
+
+    # Remove doubles / merge coplanar vertices and ensure outward normals
+    bpy.context.view_layer.objects.active = char_obj
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.remove_doubles(threshold=0.0001)
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # Step 3: Check modifiers that could duplicate or create inner/outer shells
+    for mod in list(char_obj.modifiers):
+        log(f"Inspecting modifier: {mod.name} (type={mod.type})")
+        if mod.type in ["SOLIDIFY", "SHRINKWRAP", "BOOLEAN", "MIRROR"]:
+            log(f"  REMOVING shell-duplicating modifier: {mod.name}")
+            char_obj.modifiers.remove(mod)
+
+    # Step 4: Create Dewy Satin Porcelain 8K skin material
     basecolor_path = next(tex_dir.glob("*basecolor*.png"), None)
     roughness_path = next(tex_dir.glob("*roughness*.png"), None)
     normal_path = next(tex_dir.glob("*normal*.png"), None)
@@ -129,12 +203,11 @@ def main() -> None:
             normal_path = p.resolve()
             break
 
-    log(f"\nTextures found:")
+    log(f"\nTexture files:")
     log(f"  BaseColor: {basecolor_path}")
     log(f"  Roughness: {roughness_path}")
     log(f"  Normal: {normal_path}")
 
-    # Load textures
     img_base = bpy.data.images.load(str(basecolor_path), check_existing=True) if basecolor_path and basecolor_path.exists() else None
     img_rough = bpy.data.images.load(str(roughness_path), check_existing=True) if roughness_path and roughness_path.exists() else None
     img_norm = bpy.data.images.load(str(normal_path), check_existing=True) if normal_path and normal_path.exists() else None
@@ -146,7 +219,6 @@ def main() -> None:
     if img_norm:
         img_norm.colorspace_settings.name = "Non-Color"
 
-    # Create the Dewy Satin Porcelain skin material
     skin_mat = bpy.data.materials.new("DewySatinPorcelain_8K")
     skin_mat.use_nodes = True
     nodes = skin_mat.node_tree.nodes
@@ -194,83 +266,12 @@ def main() -> None:
         links.new(tex_norm.outputs["Color"], norm_map.inputs["Color"])
         links.new(norm_map.outputs["Normal"], bsdf.inputs["Normal"])
 
-    # === FIXING GEOMETRY / OVERLAPS / BLACK SPOTS ===
-    log("\n=== Analyzing and Resolving Overlapping / Black Areas ===")
-
-    # Case A: Check if there are multiple mesh objects that overlap (coplanar duplicates)
-    # Check pairwise bounding boxes and vertex counts
-    to_remove = []
-    to_hide = []
-    for i in range(len(mesh_objects)):
-        for j in range(i + 1, len(mesh_objects)):
-            o1, o2 = mesh_objects[i], mesh_objects[j]
-            bb1 = [o1.matrix_world @ Vector(c) for c in o1.bound_box]
-            bb2 = [o2.matrix_world @ Vector(c) for c in o2.bound_box]
-            c1 = sum(bb1, Vector()) / 8.0
-            c2 = sum(bb2, Vector()) / 8.0
-            dist = (c1 - c2).length
-            v_ratio = min(len(o1.data.vertices), len(o2.data.vertices)) / max(len(o1.data.vertices), len(o2.data.vertices), 1)
-            log(f"Comparison '{o1.name}' vs '{o2.name}': center distance={dist:.4f}, vertex ratio={v_ratio:.4f}")
-
-            # If objects are overlapping in the same position
-            if dist < 1.0 and v_ratio > 0.8:
-                log(f"ALERT: Detected duplicate/overlapping coplanar mesh pair: '{o1.name}' and '{o2.name}'!")
-                # Determine which one is Tenebra / black suit vs ICH / body
-                if "tenebra" in o2.name.lower() or "suit" in o2.name.lower() or "black" in o2.name.lower() or "cloth" in o2.name.lower():
-                    to_remove.append(o2)
-                elif "tenebra" in o1.name.lower() or "suit" in o1.name.lower() or "black" in o1.name.lower() or "cloth" in o1.name.lower():
-                    to_remove.append(o1)
-                else:
-                    # Look at materials
-                    mats1 = [s.material.name.lower() for s in o1.material_slots if s.material]
-                    mats2 = [s.material.name.lower() for s in o2.material_slots if s.material]
-                    log(f"  Materials on '{o1.name}': {mats1}")
-                    log(f"  Materials on '{o2.name}': {mats2}")
-                    if any("tenebra" in m or "black" in m or "suit" in m or "dark" in m for m in mats2):
-                        to_remove.append(o2)
-                    elif any("tenebra" in m or "black" in m or "suit" in m or "dark" in m for m in mats1):
-                        to_remove.append(o1)
-                    else:
-                        # Keep the one with higher vertex count or keep o1
-                        to_remove.append(o2)
-
-    for o in to_remove:
-        log(f"Removing duplicate/coplanar object: '{o.name}'")
-        bpy.data.objects.remove(o, do_unlink=True)
-
-    # Re-evaluate remaining mesh objects
-    remaining_meshes = [o for o in bpy.data.objects if o.type == "MESH"]
-    log(f"\nRemaining mesh objects ({len(remaining_meshes)}): {[o.name for o in remaining_meshes]}")
-
-    # Case B: Check within each mesh object for:
-    # 1. Multiple material slots with black materials assigned to certain faces
-    # 2. Overlapping polygon shells or duplicate vertices inside the same object
-    for obj in remaining_meshes:
-        log(f"\nProcessing mesh object '{obj.name}':")
-
-        # Disable/remove boolean or shrinkwrap modifiers that cause artifacts if present
-        for mod in list(obj.modifiers):
-            if mod.type in ["BOOLEAN", "SHRINKWRAP", "LATTICE"]:
-                log(f"  Removing problematic modifier: {mod.name} ({mod.type})")
-                obj.modifiers.remove(mod)
-
-        # In edit mode: merge duplicate vertices / remove doubles, recalculate normals
-        bpy.context.view_layer.objects.active = obj
-        bpy.ops.object.mode_set(mode="EDIT")
-        bpy.ops.mesh.select_all(action="SELECT")
-        # Recalculate normals to outside
-        bpy.ops.mesh.normals_make_consistent(inside=False)
-        # Merge by distance (tiny threshold to clean coplanar duplicates)
-        bpy.ops.mesh.remove_doubles(threshold=0.0001)
-        bpy.ops.object.mode_set(mode="OBJECT")
-
-        # Check material slots: replace ALL material slots with skin_mat (or ensure entire body has skin_mat)
-        log(f"  Current material slots: {[s.material.name if s.material else '<empty>' for s in obj.material_slots]}")
-        obj.data.materials.clear()
-        obj.data.materials.append(skin_mat)
-        for poly in obj.data.polygons:
-            poly.material_index = 0
-        log(f"  Cleaned: object '{obj.name}' now exclusively uses 'DewySatinPorcelain_8K' on all {len(obj.data.polygons)} polygons.")
+    # Clear all materials from character and assign only skin_mat
+    char_obj.data.materials.clear()
+    char_obj.data.materials.append(skin_mat)
+    for p in char_obj.data.polygons:
+        p.material_index = 0
+    log(f"Assigned DewySatinPorcelain_8K to 100% of character polygons ({len(char_obj.data.polygons)}).")
 
     # Pack textures
     for img in [img_base, img_rough, img_norm]:
@@ -279,20 +280,19 @@ def main() -> None:
                 img.pack()
                 log(f"Packed texture: {img.name}")
             except Exception as e:
-                log(f"Could not pack {img.name}: {e}")
+                log(f"Failed to pack {img.name}: {e}")
 
     # Save cleaned scene
     log(f"Saving fixed blend file to: {out_path}")
     bpy.ops.wm.save_as_mainfile(filepath=str(out_path), compress=True)
 
-    # Write report file
+    # Write report
     report_file = out_dir / args.report
     report_file.write_text("\n".join(report_lines), encoding="utf-8")
-    log(f"Diagnostics written to {report_file}")
+    log(f"Report written to: {report_file}")
 
-    # Render clean previews
+    # Step 5: Render Previews
     if args.render_previews:
-        scene = bpy.context.scene
         scene.render.engine = "CYCLES"
         scene.cycles.device = "CPU"
         scene.cycles.samples = 64
@@ -300,62 +300,60 @@ def main() -> None:
         scene.render.resolution_x = 1000
         scene.render.resolution_y = 1333
 
-        # Render original camera
+        # Active camera render
         if scene.camera is not None:
             preview_orig = preview_dir / "ICHxTenebra_preview.png"
             scene.render.filepath = str(preview_orig)
-            log(f"Rendering fixed scene to {preview_orig}...")
+            log(f"Rendering active camera to {preview_orig}...")
             try:
                 bpy.ops.render.render(write_still=True)
-                log("Rendered active camera successfully!")
+                log("Active camera render complete!")
             except Exception as e:
                 log(f"Active camera render failed: {e}")
 
-        # Render studio closeup and front
-        active_mesh = remaining_meshes[0] if remaining_meshes else None
-        if active_mesh:
-            bbox = [active_mesh.matrix_world @ Vector(c) for c in active_mesh.bound_box]
-            center = sum(bbox, Vector()) / 8.0
-            size_z = max(v.z for v in bbox) - min(v.z for v in bbox)
-            char_height = max(size_z, 1.0)
+        # Studio Front and Closeup
+        bbox = [char_obj.matrix_world @ Vector(c) for c in char_obj.bound_box]
+        center = sum(bbox, Vector()) / 8.0
+        size_z = max(v.z for v in bbox) - min(v.z for v in bbox)
+        char_height = max(size_z, 1.0)
 
-            cam_data = bpy.data.cameras.new("StudioCam")
-            cam_obj = bpy.data.objects.new("StudioCam", cam_data)
-            scene.collection.objects.link(cam_obj)
-            scene.camera = cam_obj
+        cam_data = bpy.data.cameras.new("StudioCam")
+        cam_obj = bpy.data.objects.new("StudioCam", cam_data)
+        scene.collection.objects.link(cam_obj)
+        scene.camera = cam_obj
 
-            add_light("StudioKey", (center.x - char_height * 0.5, center.y - char_height * 1.2, center.z + char_height * 0.8), 5000 * (char_height / 70.0)**2, char_height * 0.5, (1.0, 0.96, 0.92))
-            add_light("StudioFill", (center.x + char_height * 0.6, center.y - char_height * 1.0, center.z + char_height * 0.4), 2000 * (char_height / 70.0)**2, char_height * 0.6, (0.94, 0.97, 1.0))
-            add_light("StudioRim", (center.x, center.y + char_height * 1.0, center.z + char_height * 1.0), 4000 * (char_height / 70.0)**2, char_height * 0.5, (1.0, 0.9, 0.9))
+        add_light("StudioKey", (center.x - char_height * 0.5, center.y - char_height * 1.2, center.z + char_height * 0.8), 5000 * (char_height / 70.0)**2, char_height * 0.5, (1.0, 0.96, 0.92))
+        add_light("StudioFill", (center.x + char_height * 0.6, center.y - char_height * 1.0, center.z + char_height * 0.4), 2000 * (char_height / 70.0)**2, char_height * 0.6, (0.94, 0.97, 1.0))
+        add_light("StudioRim", (center.x, center.y + char_height * 1.0, center.z + char_height * 1.0), 4000 * (char_height / 70.0)**2, char_height * 0.5, (1.0, 0.9, 0.9))
 
-            # Studio Front
-            cam_obj.location = (center.x, center.y - char_height * 1.8, center.z + char_height * 0.1)
-            track_camera(cam_obj, center)
-            bpy.context.view_layer.update()
+        # Studio Front
+        cam_obj.location = (center.x, center.y - char_height * 1.8, center.z + char_height * 0.1)
+        track_camera(cam_obj, center)
+        bpy.context.view_layer.update()
 
-            front_path = preview_dir / "ICHxTenebra_front.png"
-            scene.render.filepath = str(front_path)
-            log(f"Rendering studio front to {front_path}...")
-            try:
-                bpy.ops.render.render(write_still=True)
-            except Exception as e:
-                log(f"Front render failed: {e}")
+        front_path = preview_dir / "ICHxTenebra_front.png"
+        scene.render.filepath = str(front_path)
+        log(f"Rendering studio front to {front_path}...")
+        try:
+            bpy.ops.render.render(write_still=True)
+        except Exception as e:
+            log(f"Front render failed: {e}")
 
-            # Studio Closeup
-            face_center = Vector((center.x, center.y, center.z + char_height * 0.35))
-            cam_obj.location = (center.x + char_height * 0.15, center.y - char_height * 0.7, face_center.z + char_height * 0.05)
-            track_camera(cam_obj, face_center)
-            bpy.context.view_layer.update()
+        # Studio Closeup
+        face_center = Vector((center.x, center.y, center.z + char_height * 0.35))
+        cam_obj.location = (center.x + char_height * 0.15, center.y - char_height * 0.7, face_center.z + char_height * 0.05)
+        track_camera(cam_obj, face_center)
+        bpy.context.view_layer.update()
 
-            closeup_path = preview_dir / "ICHxTenebra_closeup.png"
-            scene.render.filepath = str(closeup_path)
-            log(f"Rendering studio closeup to {closeup_path}...")
-            try:
-                bpy.ops.render.render(write_still=True)
-            except Exception as e:
-                log(f"Closeup render failed: {e}")
+        closeup_path = preview_dir / "ICHxTenebra_closeup.png"
+        scene.render.filepath = str(closeup_path)
+        log(f"Rendering studio closeup to {closeup_path}...")
+        try:
+            bpy.ops.render.render(write_still=True)
+        except Exception as e:
+            log(f"Closeup render failed: {e}")
 
-    log("Diagnostics and repair finished!")
+    log("All repairs and renders completed!")
 
 
 if __name__ == "__main__":
