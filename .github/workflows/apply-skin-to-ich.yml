@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -79,7 +81,20 @@ jobs:
             --render-previews \
             --out-dir .
 
-          ls -lh ICHxTenebra_with_skin.blend preview_ICH_skin.png || ls -lh ICHxTenebra*
+          ls -lh preview/
+
+      - name: Commit and push preview to branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add preview/
+          if git diff --staged --quiet; then
+            echo "No preview changes to commit."
+          else
+            git commit -m "Update ICHxTenebra preview in branch [skip ci]"
+            git push origin "HEAD:${{ github.ref }}"
+          fi
 
       - name: Upload updated blend to release v0.0.0.0.0.0-s0
         env:
@@ -91,8 +106,8 @@ jobs:
           gh release upload "$TAG" \
             ICHxTenebra_with_skin.blend \
             --clobber
-          if [ -f "preview_ICH_skin.png" ]; then
-            gh release upload "$TAG" preview_ICH_skin.png --clobber
+          if [ -f "preview/ICHxTenebra_preview.png" ]; then
+            gh release upload "$TAG" preview/ICHxTenebra_preview.png preview/preview_ICH_skin.png --clobber
           fi
           gh release view "$TAG"
 
@@ -102,5 +117,5 @@ jobs:
           name: ich-with-skin
           path: |
             ICHxTenebra_with_skin.blend
-            preview_ICH_skin.png
+            preview/
           if-no-files-found: warn
