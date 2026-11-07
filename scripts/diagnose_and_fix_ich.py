@@ -1,4 +1,9 @@
-"""Comprehensive diagnosis and fix for all black spots / overlapping geometry in ICHxTenebra."""
+"""Comprehensive diagnosis and fix for all black spots in ICHxTenebra.
+
+Applies the Dewy Satin Porcelain skin painting, procedural shader, and textures
+directly to the character mesh in 3D object space, eliminating all UV seams,
+black margin padding, and tangent normal inversions.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 import bpy
-import bmesh
+import numpy as np
 from mathutils import Vector
 
 
@@ -15,7 +20,6 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--blend", default="ICHxTenebra.v0.0.0.0.0.0-s0.blend")
     p.add_argument("--out", default="ICHxTenebra_with_skin.blend")
-    p.add_argument("--textures", default="textures")
     p.add_argument("--report", default="preview/ich_diagnostics.txt")
     p.add_argument("--render-previews", action="store_true")
     p.add_argument("--out-dir", default=".")
@@ -25,6 +29,326 @@ def parse_args() -> argparse.Namespace:
 def set_input(node, name: str, value) -> None:
     if name in node.inputs:
         node.inputs[name].default_value = value
+
+
+def hex_srgb_to_linear(hex_color: str) -> np.ndarray:
+    clean = hex_color.strip().lstrip("#")
+    r, g, b = (int(clean[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+    rgb = np.array([r, g, b], dtype=np.float64)
+    linear = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+    return np.append(linear, 1.0)
+
+
+# 2026 Cinematic Dewy Satin Porcelain Palette
+SKIN_HIGH = "#FFE8D6"    # delicate glowing ivory-peach for upper body / face
+SKIN_MAIN = "#FFD9C2"    # healthy, warm peachy porcelain midtone
+SKIN_LOW = "#FFC8AA"     # warm golden undertone for legs and feet
+SKIN_GLOW = "#FFF3E6"    # dewy glass-skin highlight (forehead, nose bridge, cheek apex)
+SKIN_COOL = "#EFC2B2"    # gentle cool shadow undertone
+
+# Blush & Facial Features
+BLUSH_CORE = "#FF7C98"   # fresh, lively rose core of the blush
+BLUSH_HALO = "#FFAA94"   # soft warm peachy-coral glow radiating outwards
+EYELIDS = "#FFAEC0"      # gentle romantic warmth on the lids
+NOSE_TIP = "#FF8282"     # adorable soft flush on the nose tip
+LIPS = "#F25D82"         # juicy, glazed berry-pink lips
+LIP_CORE = "#D93B66"     # subtle depth at the mouth center
+BEAUTY_MARK = "#7A4A32"  # delicate soft-brown beauty mark
+FRECKLE = "#C48E66"      # warm translucent golden-cinnamon freckles
+WARM_BODY = "#FFAF99"    # gentle warmth for collarbones, elbows, knuckles, knees
+FINGERTIPS = "#FFB8CA"   # soft blushing fingertips and toes
+
+
+def _blob(verts: np.ndarray, normals: np.ndarray, center, radii, strength: float, need_front=True) -> np.ndarray:
+    centre = np.asarray(center, dtype=np.float64)
+    radius = np.asarray(radii, dtype=np.float64)
+    d2 = np.sum(((verts - centre) / radius) ** 2, axis=1)
+    weights = strength * np.exp(-2.2 * d2)
+    if need_front:
+        frontness = np.clip((-normals[:, 1] - 0.35) / 0.40, 0.0, 1.0)
+        weights *= frontness
+    return np.clip(weights, 0.0, 1.0)
+
+
+def paint_skin_colors(obj: bpy.types.Object) -> dict:
+    mesh = obj.data
+    verts = np.empty(len(mesh.vertices) * 3, dtype=np.float64)
+    mesh.vertices.foreach_get("co", verts)
+    verts = verts.reshape(-1, 3)
+
+    normals = np.empty(len(mesh.vertices) * 3, dtype=np.float64)
+    mesh.vertices.foreach_get("normal", normals)
+    normals = normals.reshape(-1, 3)
+
+    count = len(verts)
+    colors = np.empty((count, 4), dtype=np.float64)
+
+    z_min, z_max = float(verts[:, 2].min()), float(verts[:, 2].max())
+    t = np.clip((verts[:, 2] - z_min) / max(z_max - z_min, 1e-9), 0.0, 1.0)
+    low = hex_srgb_to_linear(SKIN_LOW)
+    main = hex_srgb_to_linear(SKIN_MAIN)
+    high = hex_srgb_to_linear(SKIN_HIGH)
+    for channel in range(4):
+        colors[:, channel] = np.where(
+            t < 0.5,
+            low[channel] + (main[channel] - low[channel]) * (t / 0.5),
+            main[channel] + (high[channel] - main[channel]) * ((t - 0.5) / 0.5),
+        )
+
+    def apply_blob(center, radii, hex_color, strength, need_front=True):
+        weights = _blob(verts, normals, center, radii, strength, need_front)
+        color = hex_srgb_to_linear(hex_color)
+        colors[:] = colors * (1.0 - weights[:, None]) + color[None, :] * weights[:, None]
+        return int((weights > 0.05).sum())
+
+    rough = np.full((count, 4), 0.47, dtype=np.float64)
+    rough[:, 3] = 1.0
+
+    def apply_rough_blob(center, radii, target, strength, need_front=True):
+        weights = _blob(verts, normals, center, radii, strength, need_front)
+        rough[:, :3] = (
+            rough[:, :3] * (1.0 - weights[:, None])
+            + float(target) * weights[:, None]
+        )
+        return int((weights > 0.05).sum())
+
+    painted = {}
+    glow = hex_srgb_to_linear(SKIN_GLOW)
+    top_weights = 0.12 * np.clip((normals[:, 2] - 0.10) / 0.70, 0.0, 1.0) ** 1.4
+    colors[:] = colors * (1.0 - top_weights[:, None]) + glow[None, :] * top_weights[:, None]
+    painted["top_light"] = int((top_weights > 0.02).sum())
+
+    cool = hex_srgb_to_linear(SKIN_COOL)
+    shade_weights = 0.07 * np.clip((-normals[:, 2] - 0.20) / 0.55, 0.0, 1.0) ** 1.4
+    colors[:] = colors * (1.0 - shade_weights[:, None]) + cool[None, :] * shade_weights[:, None]
+    painted["cool_shade"] = int((shade_weights > 0.02).sum())
+
+    # Layered living blush
+    painted["face_glow"] = apply_blob((0.0, -6.35, 64.75), (4.2, 2.6, 2.8), SKIN_GLOW, 0.24)
+    painted["forehead_glow"] = apply_blob((0.0, -5.7, 68.1), (3.5, 2.8, 1.8), SKIN_GLOW, 0.18)
+    painted["cheek_halo"] = apply_blob((-3.15, -6.1, 63.8), (2.35, 2.8, 1.6), BLUSH_HALO, 0.38)
+    painted["cheek_halo"] += apply_blob((3.15, -6.1, 63.8), (2.35, 2.8, 1.6), BLUSH_HALO, 0.38)
+    painted["cheek_left"] = apply_blob((-3.15, -6.1, 63.8), (1.55, 2.2, 1.05), BLUSH_CORE, 0.74)
+    painted["cheek_right"] = apply_blob((3.15, -6.1, 63.8), (1.55, 2.2, 1.05), BLUSH_CORE, 0.74)
+    painted["eyelids"] = apply_blob((-2.4, -5.9, 66.0), (1.1, 1.8, 0.55), EYELIDS, 0.28)
+    painted["eyelids"] += apply_blob((2.4, -5.9, 66.0), (1.1, 1.8, 0.55), EYELIDS, 0.28)
+    painted["nose"] = apply_blob((0.05, -7.25, 63.95), (0.55, 0.9, 0.50), NOSE_TIP, 0.58)
+    painted["lips"] = apply_blob((0.0, -6.75, 62.75), (0.60, 1.0, 0.38), LIPS, 0.65)
+    painted["lip_core"] = apply_blob((0.0, -6.80, 62.75), (0.35, 0.8, 0.22), LIP_CORE, 0.35)
+    painted["beauty_mark"] = apply_blob((1.75, -6.85, 63.08), (0.13, 0.26, 0.13), BEAUTY_MARK, 0.55)
+
+    # Dewy Glass Skin roughness zones
+    painted["rough_face"] = apply_rough_blob((0.0, -6.35, 64.9), (4.6, 2.7, 3.0), 0.40, 0.50)
+    painted["rough_cheeks"] = apply_rough_blob((-3.15, -6.1, 63.8), (1.9, 2.4, 1.3), 0.38, 0.40)
+    painted["rough_cheeks"] += apply_rough_blob((3.15, -6.1, 63.8), (1.9, 2.4, 1.3), 0.38, 0.40)
+    painted["rough_eyelids"] = apply_rough_blob((-2.4, -5.9, 66.0), (1.15, 1.8, 0.6), 0.33, 0.45)
+    painted["rough_eyelids"] += apply_rough_blob((2.4, -5.9, 66.0), (1.15, 1.8, 0.6), 0.33, 0.45)
+    painted["rough_nose"] = apply_rough_blob((0.05, -7.25, 63.95), (0.7, 1.0, 0.6), 0.32, 0.80)
+    painted["rough_lips"] = apply_rough_blob((0.0, -6.75, 62.75), (0.65, 1.05, 0.42), 0.22, 0.90)
+    painted["rough_clavicle"] = apply_rough_blob((0.0, -4.5, 52.0), (9.0, 4.0, 2.5), 0.36, 0.35)
+
+    # Warm accents
+    painted["hands"] = apply_blob((-22.0, 0.0, 36.0), (2.5, 3.5, 4.0), WARM_BODY, 0.20, False)
+    painted["hands"] += apply_blob((22.0, 0.0, 36.0), (2.5, 3.5, 4.0), WARM_BODY, 0.20, False)
+    painted["knees"] = apply_blob((-7.5, -4.3, 17.0), (1.8, 1.5, 2.0), WARM_BODY, 0.16)
+    painted["knees"] += apply_blob((7.5, -4.3, 17.0), (1.8, 1.5, 2.0), WARM_BODY, 0.16)
+    feet_mask = verts[:, 2] < (z_min + 2.5)
+    warm = hex_srgb_to_linear(WARM_BODY)
+    colors[feet_mask] = colors[feet_mask] * 0.88 + warm[None, :] * 0.12
+    rough[feet_mask, :3] = rough[feet_mask, :3] * 0.72 + 0.58 * 0.28
+    painted["feet"] = int(feet_mask.sum())
+    painted["rough_hands"] = apply_rough_blob((-22.0, 0.0, 36.0), (2.6, 3.6, 4.2), 0.39, 0.28, False)
+    painted["rough_hands"] += apply_rough_blob((22.0, 0.0, 36.0), (2.6, 3.6, 4.2), 0.39, 0.28, False)
+
+    # Butterfly freckles
+    rng = np.random.default_rng(42)
+    n_cheeks = 85
+    side = rng.choice([-1.0, 1.0], size=n_cheeks)
+    x_cheeks = side * rng.uniform(1.3, 4.3, size=n_cheeks)
+    z_cheeks = rng.uniform(63.9, 65.3, size=n_cheeks)
+    n_nose = 30
+    x_nose = rng.normal(0.0, 0.40, size=n_nose)
+    z_nose = rng.uniform(64.3, 65.4, size=n_nose)
+    centers_x = np.concatenate([x_cheeks, x_nose])
+    centers_z = np.concatenate([z_cheeks, z_nose])
+    keep_mask = ~((np.abs(centers_x) < 1.1) & (centers_z < 63.85))
+    centers_x = centers_x[keep_mask]
+    centers_z = centers_z[keep_mask]
+
+    face_mask = (
+        (np.abs(verts[:, 0]) < 5.0)
+        & (verts[:, 1] < -4.5)
+        & (verts[:, 2] > 63.2)
+        & (verts[:, 2] < 65.8)
+        & (normals[:, 1] < -0.3)
+    )
+    if face_mask.any():
+        fv = verts[face_mask]
+        dx = fv[:, 0][:, None] - centers_x[None, :]
+        dz = fv[:, 2][:, None] - centers_z[None, :]
+        dist = np.sqrt((dx**2 + dz**2).min(axis=1))
+        philtrum_mask = (np.abs(fv[:, 0]) < 1.0) & (fv[:, 2] < 63.85)
+        weights = 0.28 * np.exp(-((dist / 0.11) ** 2))
+        weights[philtrum_mask] = 0.0
+        freckle = hex_srgb_to_linear(FRECKLE)
+        colors[face_mask] = (
+            colors[face_mask] * (1.0 - weights[:, None])
+            + freckle[None, :] * weights[:, None]
+        )
+        painted["freckles"] = int((weights > 0.05).sum())
+
+    colors[:, 3] = 1.0
+    existing = mesh.color_attributes.get("SkinPaint")
+    if existing:
+        mesh.color_attributes.remove(existing)
+    attr = mesh.color_attributes.new(name="SkinPaint", type="FLOAT_COLOR", domain="POINT")
+    attr.data.foreach_set("color", colors.ravel())
+
+    rough[:, 3] = 1.0
+    existing_rough = mesh.color_attributes.get("SkinRoughness")
+    if existing_rough:
+        mesh.color_attributes.remove(existing_rough)
+    rough_attr = mesh.color_attributes.new(name="SkinRoughness", type="FLOAT_COLOR", domain="POINT")
+    rough_attr.data.foreach_set("color", rough.ravel())
+    mesh.color_attributes.active_color = attr
+    mesh.update()
+    return painted
+
+
+def _noise(nodes, name, x, y, scale, detail, roughness):
+    node = nodes.new("ShaderNodeTexNoise")
+    node.name = name
+    node.location = (x, y)
+    set_input(node, "Scale", float(scale))
+    set_input(node, "Detail", float(detail))
+    set_input(node, "Roughness", float(roughness))
+    return node
+
+
+def _map_range(nodes, name, x, y, to_min, to_max):
+    node = nodes.new("ShaderNodeMapRange")
+    node.name = name
+    node.location = (x, y)
+    set_input(node, "From Min", 0.0)
+    set_input(node, "From Max", 1.0)
+    set_input(node, "To Min", float(to_min))
+    set_input(node, "To Max", float(to_max))
+    return node
+
+
+def build_skin_material(obj: bpy.types.Object) -> bpy.types.Material:
+    mat = bpy.data.materials.new("DewySatinPorcelain_8K")
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+
+    out_node = nodes.new("ShaderNodeOutputMaterial")
+    out_node.location = (400, 0)
+
+    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.location = (0, 0)
+    links.new(bsdf.outputs["BSDF"], out_node.inputs["Surface"])
+
+    set_input(bsdf, "Metallic", 0.0)
+    set_input(bsdf, "Specular IOR Level", 0.50)
+    set_input(bsdf, "Specular Tint", (1.0, 0.96, 0.92, 1.0))
+    set_input(bsdf, "Subsurface Weight", 0.46)
+    set_input(bsdf, "Subsurface Radius", (2.2, 1.1, 0.65))
+    set_input(bsdf, "Subsurface Scale", 0.05)
+    set_input(bsdf, "Sheen Weight", 0.28)
+    set_input(bsdf, "Sheen Roughness", 0.48)
+    set_input(bsdf, "Sheen Tint", (1.0, 0.85, 0.78, 1.0))
+    set_input(bsdf, "Coat Weight", 0.12)
+    set_input(bsdf, "Coat Roughness", 0.32)
+
+    tex_coord = nodes.new("ShaderNodeTexCoord")
+    tex_coord.location = (-1100, 200)
+
+    vcol = nodes.new("ShaderNodeVertexColor")
+    vcol.layer_name = "SkinPaint"
+    vcol.location = (-900, 350)
+
+    coarse = _noise(nodes, "ToneNoise", -900, 0, 5.0, 2.0, 0.60)
+    mid = _noise(nodes, "MottleNoise", -900, -125, 22.0, 2.0, 0.55)
+    fine = _noise(nodes, "PoreNoise", -900, -250, 26.0, 2.0, 0.52)
+    links.new(tex_coord.outputs["Object"], coarse.inputs["Vector"])
+    links.new(tex_coord.outputs["Object"], mid.inputs["Vector"])
+    links.new(tex_coord.outputs["Object"], fine.inputs["Vector"])
+
+    coarse_range = _map_range(nodes, "ToneRange", -680, 0, 0.94, 1.01)
+    mid_range = _map_range(nodes, "MottleRange", -680, -125, 0.95, 1.01)
+    fine_range = _map_range(nodes, "PoreRange", -680, -250, 0.955, 1.0)
+    links.new(mid.outputs["Fac"], mid_range.inputs["Value"])
+    links.new(coarse.outputs["Fac"], coarse_range.inputs["Value"])
+    links.new(fine.outputs["Fac"], fine_range.inputs["Value"])
+
+    mix1 = nodes.new("ShaderNodeMixRGB")
+    mix1.blend_type = "MULTIPLY"
+    mix1.inputs["Fac"].default_value = 1.0
+    mix1.location = (-460, 250)
+    links.new(vcol.outputs["Color"], mix1.inputs["Color1"])
+    links.new(coarse_range.outputs["Result"], mix1.inputs["Color2"])
+
+    mix2 = nodes.new("ShaderNodeMixRGB")
+    mix2.blend_type = "MULTIPLY"
+    mix2.inputs["Fac"].default_value = 1.0
+    mix2.location = (-260, 250)
+    links.new(mix1.outputs["Color"], mix2.inputs["Color1"])
+    links.new(fine_range.outputs["Result"], mix2.inputs["Color2"])
+
+    mix3 = nodes.new("ShaderNodeMixRGB")
+    mix3.blend_type = "MULTIPLY"
+    mix3.inputs["Fac"].default_value = 1.0
+    mix3.location = (-60, 250)
+    links.new(mix2.outputs["Color"], mix3.inputs["Color1"])
+    links.new(mid_range.outputs["Result"], mix3.inputs["Color2"])
+
+    links.new(mix3.outputs["Color"], bsdf.inputs["Base Color"])
+    if "Subsurface Color" in bsdf.inputs:
+        links.new(mix3.outputs["Color"], bsdf.inputs["Subsurface Color"])
+
+    # Roughness
+    rough_vcol = nodes.new("ShaderNodeVertexColor")
+    rough_vcol.layer_name = "SkinRoughness"
+    rough_vcol.location = (-900, -650)
+    rough_separate = nodes.new("ShaderNodeSeparateColor")
+    rough_separate.location = (-710, -650)
+    links.new(rough_vcol.outputs["Color"], rough_separate.inputs["Color"])
+
+    rough_noise = _noise(nodes, "RoughNoise", -900, -500, 6.0, 2.0, 0.6)
+    links.new(tex_coord.outputs["Object"], rough_noise.inputs["Vector"])
+    rough_range = _map_range(nodes, "RoughRange", -680, -500, -0.035, 0.035)
+    pore_rough_range = _map_range(nodes, "PoreRoughRange", -680, -625, -0.015, 0.015)
+    links.new(rough_noise.outputs["Fac"], rough_range.inputs["Value"])
+    links.new(fine.outputs["Fac"], pore_rough_range.inputs["Value"])
+
+    rough_add1 = nodes.new("ShaderNodeMath")
+    rough_add1.operation = "ADD"
+    rough_add1.use_clamp = True
+    rough_add1.location = (-440, -560)
+    links.new(rough_separate.outputs["Red"], rough_add1.inputs[0])
+    links.new(rough_range.outputs["Result"], rough_add1.inputs[1])
+
+    rough_add2 = nodes.new("ShaderNodeMath")
+    rough_add2.operation = "ADD"
+    rough_add2.use_clamp = True
+    rough_add2.location = (-240, -560)
+    links.new(rough_add1.outputs["Value"], rough_add2.inputs[0])
+    links.new(pore_rough_range.outputs["Result"], rough_add2.inputs[1])
+    links.new(rough_add2.outputs["Value"], bsdf.inputs["Roughness"])
+
+    # Micro-dermal bump in object space (completely UV-free and zero tangent artifacts)
+    bump = nodes.new("ShaderNodeBump")
+    bump.location = (-260, -150)
+    set_input(bump, "Strength", 0.02)
+    set_input(bump, "Distance", 0.05)
+    links.new(fine.outputs["Fac"], bump.inputs["Height"])
+    links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+
+    obj.data.materials.clear()
+    obj.data.materials.append(mat)
+    return mat
 
 
 def track_camera(obj, target: Vector) -> None:
@@ -55,7 +379,6 @@ def add_light(name: str, location: tuple[float, float, float], energy: float, si
 def main() -> None:
     args = parse_args()
     blend_path = Path(args.blend).resolve()
-    tex_dir = Path(args.textures).resolve()
     out_path = Path(args.out).resolve()
     out_dir = Path(args.out_dir).resolve()
     preview_dir = out_dir / "preview"
@@ -70,28 +393,6 @@ def main() -> None:
     log(f"=== Opening Original Blend File: {blend_path} ===")
     bpy.ops.wm.open_mainfile(filepath=str(blend_path))
 
-    scene = bpy.context.scene
-    log(f"Scene name: {scene.name}")
-    log(f"View layers ({len(scene.view_layers)}): {[vl.name for vl in scene.view_layers]}")
-    log(f"Collections ({len(bpy.data.collections)}): {[c.name for c in bpy.data.collections]}")
-
-    log(f"\n=== Listing ALL {len(bpy.data.objects)} objects in bpy.data.objects ===")
-    for o in bpy.data.objects:
-        inst_info = f", instance_type={o.instance_type}" if hasattr(o, "instance_type") else ""
-        if hasattr(o, "instance_collection") and o.instance_collection:
-            inst_info += f", inst_collection='{o.instance_collection.name}'"
-        log(f"  Object: '{o.name}' (type={o.type}{inst_info}, hide_render={o.hide_render}, hide_viewport={o.hide_get()})")
-
-    # Step 1: Remove any collection instances / empties duplicating geometry
-    removed_instances = 0
-    for o in list(bpy.data.objects):
-        if o.type == "EMPTY" and hasattr(o, "instance_type") and o.instance_type in ["COLLECTION", "OBJECT"]:
-            log(f"REMOVING collection instance Empty: '{o.name}' (instanced {o.instance_collection})")
-            bpy.data.objects.remove(o, do_unlink=True)
-            removed_instances += 1
-    log(f"Removed {removed_instances} collection instances.")
-
-    # Step 2: Inspect character mesh in detail
     char_obj = bpy.data.objects.get("reVAmped_character_female_8k")
     if not char_obj:
         for o in bpy.data.objects:
@@ -99,188 +400,31 @@ def main() -> None:
                 char_obj = o
                 break
 
-    log(f"\nTarget character mesh: '{char_obj.name}'")
-    log(f"Modifiers: {[m.name + '(' + m.type + ')' for m in char_obj.modifiers]}")
-    log(f"Shape keys: {char_obj.data.shape_keys.key_blocks.keys() if char_obj.data.shape_keys else 'None'}")
-    log(f"Vertex groups count: {len(char_obj.vertex_groups)}")
-    log(f"UV layers: {[uv.name for uv in char_obj.data.uv_layers]}")
-    log(f"Color attributes / vertex colors: {[ca.name for ca in char_obj.data.color_attributes] if hasattr(char_obj.data, 'color_attributes') else 'None'}")
+    log(f"Target character mesh: '{char_obj.name}'")
 
-    # Inspect mesh connectivity using bmesh: find loose components
-    bm = bmesh.new()
-    bm.from_mesh(char_obj.data)
-    bm.verts.ensure_lookup_table()
-    bm.faces.ensure_lookup_table()
+    # Restore backdrop material to clean studio cyclorama
+    cyc_obj = bpy.data.objects.get("Studio_Infinity_Cyclorama")
+    if cyc_obj:
+        cyc_mat = bpy.data.materials.get("M_Cinema_ObsidianSilk_Cyclorama")
+        if not cyc_mat:
+            cyc_mat = bpy.data.materials.new("M_Cinema_ObsidianSilk_Cyclorama")
+            cyc_mat.use_nodes = True
+            bsdf = cyc_mat.node_tree.nodes["Principled BSDF"]
+            set_input(bsdf, "Base Color", (0.034, 0.030, 0.048, 1.0))
+            set_input(bsdf, "Roughness", 0.58)
+        cyc_obj.data.materials.clear()
+        cyc_obj.data.materials.append(cyc_mat)
+        log("Restored Studio_Infinity_Cyclorama backdrop material.")
 
-    # Find connected components of faces
-    visited_faces = set()
-    components = []
-    for face in bm.faces:
-        if face in visited_faces:
-            continue
-        comp = []
-        queue = [face]
-        visited_faces.add(face)
-        while queue:
-            f = queue.pop()
-            comp.append(f)
-            for edge in f.edges:
-                for linked in edge.link_faces:
-                    if linked not in visited_faces:
-                        visited_faces.add(linked)
-                        queue.append(linked)
-        components.append(comp)
+    # Paint vertex colors (SkinPaint and SkinRoughness)
+    log("Painting skin colors and roughness layers...")
+    painted_stats = paint_skin_colors(char_obj)
+    log(f"Painted skin stats: {painted_stats}")
 
-    log(f"\nMesh connectivity: found {len(components)} connected polygon islands / shells in '{char_obj.name}':")
-    for idx, comp in enumerate(components):
-        bbox_min = Vector((min(f.calc_center_median().x for f in comp), min(f.calc_center_median().y for f in comp), min(f.calc_center_median().z for f in comp)))
-        bbox_max = Vector((max(f.calc_center_median().x for f in comp), max(f.calc_center_median().y for f in comp), max(f.calc_center_median().z for f in comp)))
-        log(f"  Island #{idx+1}: {len(comp)} faces, bbox min={bbox_min}, max={bbox_max}")
-
-    # If there are multiple islands: is one island a duplicate / suit / inner shell?
-    # If two islands span the whole body height (e.g. from feet z~0 to head z~77), one is an overlapping duplicate shell!
-    if len(components) > 1:
-        log("\nAnalyzing multi-island structure for duplicate / overlapping coplanar shells...")
-        body_shells = []
-        for idx, comp in enumerate(components):
-            z_min = min(f.calc_center_median().z for f in comp)
-            z_max = max(f.calc_center_median().z for f in comp)
-            z_span = z_max - z_min
-            log(f"  Island #{idx+1}: z_span={z_span:.2f} (from {z_min:.2f} to {z_max:.2f}), faces={len(comp)}")
-            if z_span > 50.0:  # Spans almost full body
-                body_shells.append((idx, comp, len(comp)))
-
-        if len(body_shells) > 1:
-            log(f"CRITICAL: Found {len(body_shells)} full-body shells inside the same mesh! This is the source of Z-fighting!")
-            # Sort by face count descending, keep the primary shell (highest face count / outermost)
-            body_shells.sort(key=lambda x: x[2], reverse=True)
-            log(f"Keeping primary shell #{body_shells[0][0]+1} with {body_shells[0][2]} faces.")
-            # Delete faces of the secondary duplicate shells
-            for shell_idx, comp, f_count in body_shells[1:]:
-                log(f"Deleting secondary duplicate shell #{shell_idx+1} with {f_count} faces...")
-                for f in comp:
-                    if f.is_valid:
-                        bm.faces.remove(f)
-
-    # Clean unused vertices / edges
-    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
-    bm.to_mesh(char_obj.data)
-    bm.free()
-    char_obj.data.update()
-
-    log(f"\nAfter shell cleanup: {len(char_obj.data.vertices)} vertices, {len(char_obj.data.polygons)} polygons.")
-
-    # Remove doubles / merge coplanar vertices and ensure outward normals
-    bpy.context.view_layer.objects.active = char_obj
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.mesh.remove_doubles(threshold=0.0001)
-    bpy.ops.mesh.normals_make_consistent(inside=False)
-    bpy.ops.object.mode_set(mode="OBJECT")
-
-    # Step 3: Check modifiers that could duplicate or create inner/outer shells
-    for mod in list(char_obj.modifiers):
-        log(f"Inspecting modifier: {mod.name} (type={mod.type})")
-        if mod.type in ["SOLIDIFY", "SHRINKWRAP", "BOOLEAN", "MIRROR"]:
-            log(f"  REMOVING shell-duplicating modifier: {mod.name}")
-            char_obj.modifiers.remove(mod)
-
-    # Step 4: Create Dewy Satin Porcelain 8K skin material
-    basecolor_path = next(tex_dir.glob("*basecolor*.png"), None)
-    roughness_path = next(tex_dir.glob("*roughness*.png"), None)
-    normal_path = next(tex_dir.glob("*normal*.png"), None)
-
-    if not basecolor_path or not basecolor_path.exists():
-        for p in Path(".").rglob("*skin_basecolor*.png"):
-            basecolor_path = p.resolve()
-            break
-    if not roughness_path or not roughness_path.exists():
-        for p in Path(".").rglob("*skin_roughness*.png"):
-            roughness_path = p.resolve()
-            break
-    if not normal_path or not normal_path.exists():
-        for p in Path(".").rglob("*skin_normal*.png"):
-            normal_path = p.resolve()
-            break
-
-    log(f"\nTexture files:")
-    log(f"  BaseColor: {basecolor_path}")
-    log(f"  Roughness: {roughness_path}")
-    log(f"  Normal: {normal_path}")
-
-    img_base = bpy.data.images.load(str(basecolor_path), check_existing=True) if basecolor_path and basecolor_path.exists() else None
-    img_rough = bpy.data.images.load(str(roughness_path), check_existing=True) if roughness_path and roughness_path.exists() else None
-    img_norm = bpy.data.images.load(str(normal_path), check_existing=True) if normal_path and normal_path.exists() else None
-
-    if img_base:
-        img_base.colorspace_settings.name = "sRGB"
-    if img_rough:
-        img_rough.colorspace_settings.name = "Non-Color"
-    if img_norm:
-        img_norm.colorspace_settings.name = "Non-Color"
-
-    skin_mat = bpy.data.materials.new("DewySatinPorcelain_8K")
-    skin_mat.use_nodes = True
-    nodes = skin_mat.node_tree.nodes
-    links = skin_mat.node_tree.links
-    nodes.clear()
-
-    out_node = nodes.new("ShaderNodeOutputMaterial")
-    out_node.location = (400, 0)
-
-    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.location = (0, 0)
-    links.new(bsdf.outputs["BSDF"], out_node.inputs["Surface"])
-
-    set_input(bsdf, "Metallic", 0.0)
-    set_input(bsdf, "Roughness", 0.46)
-    set_input(bsdf, "Subsurface Weight", 0.46)
-    set_input(bsdf, "Subsurface Radius", (2.2, 1.1, 0.65))
-    set_input(bsdf, "Subsurface Scale", 0.05)
-    set_input(bsdf, "Sheen Weight", 0.28)
-    set_input(bsdf, "Sheen Tint", (1.0, 0.88, 0.85, 1.0))
-    set_input(bsdf, "Coat Weight", 0.12)
-    set_input(bsdf, "Coat Roughness", 0.08)
-
-    if img_base:
-        tex_base = nodes.new("ShaderNodeTexImage")
-        tex_base.image = img_base
-        tex_base.location = (-400, 200)
-        links.new(tex_base.outputs["Color"], bsdf.inputs["Base Color"])
-        if "Subsurface Color" in bsdf.inputs:
-            links.new(tex_base.outputs["Color"], bsdf.inputs["Subsurface Color"])
-
-    if img_rough:
-        tex_rough = nodes.new("ShaderNodeTexImage")
-        tex_rough.image = img_rough
-        tex_rough.location = (-400, -50)
-        links.new(tex_rough.outputs["Color"], bsdf.inputs["Roughness"])
-
-    if img_norm:
-        tex_norm = nodes.new("ShaderNodeTexImage")
-        tex_norm.image = img_norm
-        tex_norm.location = (-600, -300)
-        norm_map = nodes.new("ShaderNodeNormalMap")
-        norm_map.location = (-300, -300)
-        set_input(norm_map, "Strength", 0.58)
-        links.new(tex_norm.outputs["Color"], norm_map.inputs["Color"])
-        links.new(norm_map.outputs["Normal"], bsdf.inputs["Normal"])
-
-    # Clear all materials from character and assign only skin_mat
-    char_obj.data.materials.clear()
-    char_obj.data.materials.append(skin_mat)
-    for p in char_obj.data.polygons:
-        p.material_index = 0
-    log(f"Assigned DewySatinPorcelain_8K to 100% of character polygons ({len(char_obj.data.polygons)}).")
-
-    # Pack textures
-    for img in [img_base, img_rough, img_norm]:
-        if img:
-            try:
-                img.pack()
-                log(f"Packed texture: {img.name}")
-            except Exception as e:
-                log(f"Failed to pack {img.name}: {e}")
+    # Build the Dewy Satin Porcelain procedural material on the character
+    log("Building Dewy Satin Porcelain skin material in Object Space...")
+    skin_mat = build_skin_material(char_obj)
+    log(f"Applied material '{skin_mat.name}' to '{char_obj.name}'.")
 
     # Save cleaned scene
     log(f"Saving fixed blend file to: {out_path}")
@@ -291,8 +435,9 @@ def main() -> None:
     report_file.write_text("\n".join(report_lines), encoding="utf-8")
     log(f"Report written to: {report_file}")
 
-    # Step 5: Render Previews
+    # Render Previews
     if args.render_previews:
+        scene = bpy.context.scene
         scene.render.engine = "CYCLES"
         scene.cycles.device = "CPU"
         scene.cycles.samples = 64
