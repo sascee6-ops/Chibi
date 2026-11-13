@@ -10,3 +10,5 @@ Chibi_pretty.blend
 Chibi_pretty.glb
 Chibi_pretty.stl
 textures/*.png
+!textures/anime_eye_master.png
+!textures/eye_*.png
